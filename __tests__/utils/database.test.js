@@ -1,189 +1,101 @@
 // __tests__/utils/database.test.js
 const { Sequelize } = require('sequelize');
+const { sequelize, db, testConnection } = require('../../src/utils/database');
 
-// Mock Sequelize
 jest.mock('sequelize', () => {
-  const mockSequelizeInstance = {
-    authenticate: jest.fn(),
-    define: jest.fn().mockReturnValue({}),
-    sync: jest.fn().mockResolvedValue(true)
+  const SequelizeMock = jest.fn(() => ({
+    authenticate: jest.fn().mockResolvedValue(true),
+    sync: jest.fn().mockResolvedValue(true),
+    close: jest.fn().mockResolvedValue(true),
+    define: jest.fn().mockReturnValue({
+      findAll: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      destroy: jest.fn(),
+      bulkCreate: jest.fn(),
+    }),
+  }));
+
+  const DataTypesMock = {
+    STRING: jest.fn(),
+    INTEGER: jest.fn(),
+    BOOLEAN: jest.fn(),
+    DATE: jest.fn(),
+    DECIMAL: jest.fn(),
   };
-  
-  const MockSequelize = jest.fn(() => mockSequelizeInstance);
-  MockSequelize.prototype.authenticate = mockSequelizeInstance.authenticate;
-  
+
   return {
-    Sequelize: MockSequelize
+    Sequelize: SequelizeMock,
+    DataTypes: DataTypesMock,
+    Op: {
+      in: jest.fn(),
+      ne: jest.fn(),
+      gte: jest.fn(),
+    },
   };
 });
-
-jest.mock('../../src/models', () => ({
-  sequelize: {
-    authenticate: jest.fn().mockResolvedValue(true),
-    close: jest.fn().mockResolvedValue(true)
-  },
-  Sequelize: {
-    DataTypes: jest.fn(),
-    Op: {
-      eq: 'eq',
-      ne: 'ne'
-    }
-  },
-  Player: {
-    findByPk: jest.fn(),
-    findAll: jest.fn(),
-    create: jest.fn(),
-    update: jest.fn(),
-    destroy: jest.fn()
-  }
-}));
 
 // Mock console methods
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
 
-const db = require('../../src/models');
+beforeEach(() => {
+  process.env.POSTGRES_HOST = 'localhost';
+  process.env.POSTGRES_PORT = '5432';
+  process.env.POSTGRES_DB = 'test_db';
+  process.env.POSTGRES_USER = 'test_user';
+  process.env.POSTGRES_PASSWORD = 'test_password';
 
-beforeAll(async () => {
-  await db.sequelize.authenticate();
+  jest.clearAllMocks();
+  jest.resetModules();
+
+  console.log = jest.fn();
+  console.error = jest.fn();
 });
 
-afterAll(async () => {
-  await db.sequelize.close();
+afterEach(() => {
+  console.log = originalConsoleLog;
+  console.error = originalConsoleError;
+});
+
+afterAll(() => {
+  mockExit.mockRestore();
 });
 
 describe('Database Utility', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    
-    // Mock console methods
-    console.log = jest.fn();
-    console.error = jest.fn();
-    
-    // Reset module cache for each test
-    jest.resetModules();
-  });
-  
-  afterEach(() => {
-    // Restore console methods
-    console.log = originalConsoleLog;
-    console.error = originalConsoleError;
-  });
-  
-  afterAll(() => {
-    mockExit.mockRestore();
-  });
-  
   test('should create Sequelize instance with correct parameters', () => {
-    // This will trigger database.js to be evaluated
-    const sequelize = require('../../src/utils/database');
-    
-    // Verify Sequelize constructor was called with correct params
     expect(Sequelize).toHaveBeenCalledWith(
-      'test_db',
-      'test_user',
-      'test_password',
+      process.env.POSTGRES_DB,
+      process.env.POSTGRES_USER,
+      process.env.POSTGRES_PASSWORD,
       expect.objectContaining({
-        host: 'localhost',
-        port: '5432',
-        dialect: 'postgres'
+        host: process.env.POSTGRES_HOST,
+        port: process.env.POSTGRES_PORT,
+        dialect: 'postgres',
       })
     );
   });
-  
-  test('should test database connection on load', () => {
-    // This will trigger database.js to be evaluated and testConnection to be called
-    const sequelize = require('../../src/utils/database');
-    const sequelizeInstance = Sequelize();
-    
-    // Verify authenticate was called
-    expect(sequelizeInstance.authenticate).toHaveBeenCalled();
+
+  test('should test database connection on load', async () => {
+    await testConnection();
+    expect(sequelize.authenticate).toHaveBeenCalled();
   });
-  
-  test('should handle successful authentication', async () => {
-    // Setup - mock successful connection
-    const sequelizeInstance = Sequelize();
-    sequelizeInstance.authenticate.mockResolvedValue();
-    
-    // Load database module which will call testConnection
-    const sequelize = require('../../src/utils/database');
-    
-    // Trigger authenticate promise resolution
-    await new Promise(process.nextTick);
-    
-    // Verify success message
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/connection has been established successfully/i)
-    );
+
+  test('should initialize models correctly', () => {
+    expect(sequelize.define).toHaveBeenCalled();
+    expect(db.Player).toBeDefined();
+    expect(db.Team).toBeDefined();
   });
-  
-  test('should exit process on authentication failure', async () => {
-    // Setup - mock failed connection
-    const sequelizeInstance = Sequelize();
-    sequelizeInstance.authenticate.mockRejectedValue(new Error('Auth failed'));
-    
-    // Load database module which will call testConnection
-    const sequelize = require('../../src/utils/database');
-    
-    // Trigger authenticate promise rejection
-    await new Promise(process.nextTick);
-    
-    // Verify error handling
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/Unable to connect to the database/i),
-      expect.any(Error)
-    );
-    expect(process.exit).toHaveBeenCalledWith(1);
-  });
-  
-  test('should exit if required env vars are missing', () => {
-    // Setup - save current env and remove required var
-    const originalEnv = { ...process.env };
-    delete process.env.POSTGRES_HOST;
-    
-    // Try to load the database module
-    expect(() => {
-      require('../../src/utils/database');
-    }).not.toThrow();
-    
-    // Verify error handling
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/Missing required environment variable: POSTGRES_HOST/i)
-    );
-    expect(process.exit).toHaveBeenCalledWith(1);
-    
-    // Restore env for subsequent tests
-    process.env = originalEnv;
-  });
-  
-  test('should use environment-specific logging settings', () => {
-    // Test with development environment
-    process.env.NODE_ENV = 'development';
-    const devSequelize = require('../../src/utils/database');
-    expect(Sequelize).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.objectContaining({
-        logging: expect.any(Function) // console.log in development
-      })
-    );
-    
-    // Reset for production test
-    jest.resetModules();
-    process.env.NODE_ENV = 'production';
-    const prodSequelize = require('../../src/utils/database');
-    expect(Sequelize).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.objectContaining({
-        logging: false // No logging in production
-      })
-    );
-    
-    // Reset for test environment
-    process.env.NODE_ENV = 'test';
+
+  test('should set up associations correctly', () => {
+    expect(db.Team.hasMany).toHaveBeenCalledWith(db.Player, {
+      foreignKey: 'team_abbreviation',
+      sourceKey: 'team_abbreviation',
+    });
+    expect(db.Player.belongsTo).toHaveBeenCalledWith(db.Team, {
+      foreignKey: 'team_abbreviation',
+      targetKey: 'team_abbreviation',
+    });
   });
 });

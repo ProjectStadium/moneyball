@@ -1,64 +1,53 @@
-if (process.env.NODE_ENV === 'test') {
-  // No need to load .env.test here; jest.config.js handles it
-}
+import dotenv from 'dotenv';
+import { Sequelize } from 'sequelize';
+import { initializeDb, db } from '../models/index.js';
 
-// src/utils/database.js
-require('dotenv').config();
-const { Sequelize } = require('sequelize');
+// Load environment variables
+dotenv.config();
 
 // Validate required environment variables
 const requiredEnvVars = [
-  'POSTGRES_HOST', 
-  'POSTGRES_PORT', 
-  'POSTGRES_DB', 
-  'POSTGRES_USER', 
-  'POSTGRES_PASSWORD'
+  'POSTGRES_HOST',
+  'POSTGRES_PORT',
+  'POSTGRES_DB',
+  'POSTGRES_USER',
+  'POSTGRES_PASSWORD',
 ];
 
-requiredEnvVars.forEach(varName => {
+requiredEnvVars.forEach((varName) => {
   if (!process.env[varName]) {
     console.error(`Missing required environment variable: ${varName}`);
     process.exit(1);
   }
 });
 
+console.log('POSTGRES_HOST in database.js:', process.env.POSTGRES_HOST);
+
 // Create Sequelize instance
 const sequelize = new Sequelize(
-  process.env.POSTGRES_DB,    // database
-  process.env.POSTGRES_USER,  // username
-  process.env.POSTGRES_PASSWORD, // password
+  process.env.POSTGRES_DB || 'moneyball_test',
+  process.env.POSTGRES_USER || 'postgres',
+  process.env.POSTGRES_PASSWORD || 'FourZero26!',
   {
-    host: process.env.POSTGRES_HOST,
-    port: process.env.POSTGRES_PORT,
+    host: process.env.POSTGRES_HOST || 'localhost',
+    port: process.env.POSTGRES_PORT || 5433,
     dialect: 'postgres',
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     pool: {
-      max: 5,     // Maximum number of connection in pool
-      min: 0,     // Minimum number of connection in pool
-      acquire: 30000,  // Maximum time (ms) to acquire a connection
-      idle: 10000      // Maximum time (ms) a connection can be idle
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000,
     },
     define: {
-      // Automatically add timestamps
       timestamps: true,
-      // Use snake_case for automatically added attributes
-      underscored: true
-    }
+      underscored: true,
+    },
   }
 );
 
-// Test the database connection
-const testConnection = async () => {
-  try {
-    await sequelize.authenticate();
-    console.log('PostgreSQL connection has been established successfully.');
-  } catch (error) {
-    console.error('Unable to connect to the database:', error);
-    process.exit(1);
-  }
-};
+// Initialize models and set up `db`
+await initializeDb(sequelize, Sequelize);
 
-// Initialize database connection
-testConnection();
-
-module.exports = sequelize;
+// Export both `sequelize` and `db`
+export { sequelize, db };

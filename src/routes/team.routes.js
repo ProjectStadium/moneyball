@@ -1,21 +1,28 @@
 // src/routes/team.routes.js
-const express = require('express');
+import express from 'express';
+import {
+  findAll,
+  getTopTeams,
+  getTeamsByRegion,
+  getTeamRoster,
+  findOne,
+} from '../controllers/team.controller.js';
+
 const router = express.Router();
-const teams = require('../controllers/team.controller');
 
 // Get all teams (with optional filtering)
-router.get('/', teams.findAll);
+router.get('/', findAll);
 
 // Get top teams
-router.get('/top', teams.getTopTeams);
+router.get('/top', getTopTeams);
 
 // Get teams by region
-router.get('/region/:region', teams.getTeamsByRegion);
+router.get('/region/:region', getTeamsByRegion);
 
 // Get team roster
-router.get('/:id/roster', teams.getTeamRoster);
+router.get('/:id/roster', getTeamRoster);
 
 // Get a single team by id or abbreviation
-router.get('/:id', teams.findOne);
+router.get('/:id', findOne);
 
-module.exports = router;
+export default router;

@@ -1,5 +1,5 @@
 // __tests__/helpers/teardown.js
-const db = require('../../src/models');
+const db = require('./setup');
 
 // Clear test database tables
 async function clearDatabase() {
@@ -25,3 +25,12 @@ module.exports = async () => {
 
 // Export the clearDatabase function for use in individual tests
 module.exports.clearDatabase = clearDatabase;
+
+afterAll(async () => {
+  try {
+    await db.sequelize.close();
+    console.log('Test database connection closed');
+  } catch (error) {
+    console.error('Error during teardown:', error);
+  }
+});

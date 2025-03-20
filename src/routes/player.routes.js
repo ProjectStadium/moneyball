@@ -1,21 +1,27 @@
-// src/routes/player.routes.js
-const express = require('express');
+import express from 'express';
+import {
+  findAll,
+  getFreeAgents,
+  getTopPlayers,
+  getPlayersByTeam,
+  findOne,
+} from '../controllers/player.controller.js';
+
 const router = express.Router();
-const players = require('../controllers/player.controller');
 
 // Get all players (with optional filtering)
-router.get('/', players.findAll);
+router.get('/', findAll);
 
 // Get free agents
-router.get('/free-agents', players.getFreeAgents);
+router.get('/free-agents', getFreeAgents);
 
 // Get top players by specific stat
-router.get('/top', players.getTopPlayers);
+router.get('/top', getTopPlayers);
 
 // Get players by team
-router.get('/team/:team_abbreviation', players.getPlayersByTeam);
+router.get('/team/:team_abbreviation', getPlayersByTeam);
 
 // Get a single player by id
-router.get('/:id', players.findOne);
+router.get('/:id', findOne);
 
-module.exports = router;
+export default router;

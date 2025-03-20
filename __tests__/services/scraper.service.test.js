@@ -51,7 +51,12 @@ jest.mock('../../src/services/scraper.service', () => ({
       role_percentages: { Duelist: 90 }
     }
   }),
-  scrapeAllPlayers: jest.fn().mockResolvedValue(5)
+  scrapeAllPlayers: jest.fn().mockResolvedValue(5),
+  makeRequest: jest.fn(),
+  scrapePlayerList: jest.fn(),
+  extractPlayerFromStatsPage: jest.fn(),
+  calculateRating: jest.fn(),
+  estimatePlayerValue: jest.fn(),
 }));
 
 describe('ValorantScraper Service', () => {
@@ -319,5 +324,20 @@ describe('ValorantScraper Service', () => {
       mockPlayer.vlr_url
     );
     expect(result).toBe(1); // Should return count of players scraped
+  });
+});
+
+describe('Scraper Service', () => {
+  test('makeRequest should call axios with correct parameters', async () => {
+    axios.get.mockResolvedValue({ data: 'test' });
+    const result = await scraperService.makeRequest('https://www.vlr.gg/');
+    expect(axios.get).toHaveBeenCalledWith('https://www.vlr.gg/', expect.anything());
+    expect(result).toEqual('test');
+  });
+
+  test('scrapePlayerList should parse player data correctly', async () => {
+    scraperService.scrapePlayerList.mockResolvedValue([{ name: 'TestPlayer' }]);
+    const players = await scraperService.scrapePlayerList(1);
+    expect(players).toEqual([{ name: 'TestPlayer' }]);
   });
 });

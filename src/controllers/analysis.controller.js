@@ -1,62 +1,40 @@
-// src/controllers/analysis.controller.js
-const db = require('../models');
+import { Op } from 'sequelize';
+import { db } from '../models/index.js';
+
 const Player = db.Player;
 const Team = db.Team;
-const { Op } = require('sequelize');
 
-/**
- * Find players similar to a specified player based on stats and playstyle
- */
-exports.findSimilarPlayers = async (req, res) => {
+// Find players similar to a specified player based on stats and playstyle
+export const findSimilarPlayers = async (req, res) => {
   try {
     const { player_id } = req.params;
     const { limit = 5, free_agents_only = false } = req.query;
-    
-    // Get the target player
+
     const targetPlayer = await Player.findByPk(player_id);
-    
+
     if (!targetPlayer) {
-      return res.status(404).json({
-        message: `Player with id ${player_id} not found.`
-      });
+      return res.status(404).json({ message: `Player with id ${player_id} not found.` });
     }
-    
-    // Build where clause for query
-    const whereClause = {
-      id: { [Op.ne]: player_id } // Exclude the target player
-    };
-    
-    // Only include free agents if specified
-    if (free_agents_only === 'true') {
-      whereClause.is_free_agent = true;
-    }
-    
-    // Get all comparable players
+
+    const whereClause = { id: { [Op.ne]: player_id } };
+    if (free_agents_only === 'true') whereClause.is_free_agent = true;
+
     const allPlayers = await Player.findAll({ where: whereClause });
-    
-    // Calculate similarity scores
-    const playersWithSimilarity = allPlayers.map(player => {
-      // Calculate similarity based on key stats (with safety checks)
+
+    const playersWithSimilarity = allPlayers.map((player) => {
       const acsSimilarity = calculateStatSimilarity(player.acs, targetPlayer.acs);
       const kdrSimilarity = calculateStatSimilarity(player.kd_ratio, targetPlayer.kd_ratio);
       const adrSimilarity = calculateStatSimilarity(player.adr, targetPlayer.adr);
       const hsPercentSimilarity = calculateStatSimilarity(player.hs_pct, targetPlayer.hs_pct);
-      
-      // Calculate playstyle similarity
-      const playstyleSimilarity = calculatePlaystyleSimilarity(
-        player.playstyle, 
-        targetPlayer.playstyle
-      );
-      
-      // Weighted final similarity score
-      const similarityScore = (
-        acsSimilarity * 0.25 + 
-        kdrSimilarity * 0.25 + 
-        adrSimilarity * 0.2 + 
+      const playstyleSimilarity = calculatePlaystyleSimilarity(player.playstyle, targetPlayer.playstyle);
+
+      const similarityScore =
+        acsSimilarity * 0.25 +
+        kdrSimilarity * 0.25 +
+        adrSimilarity * 0.2 +
         hsPercentSimilarity * 0.1 +
-        playstyleSimilarity * 0.2
-      );
-      
+        playstyleSimilarity * 0.2;
+
       return {
         id: player.id,
         name: player.name,
@@ -71,7 +49,7 @@ exports.findSimilarPlayers = async (req, res) => {
           acs: player.acs,
           kd_ratio: player.kd_ratio,
           adr: player.adr,
-          hs_pct: player.hs_pct
+          hs_pct: player.hs_pct,
         },
         similarity: {
           overall: parseFloat((similarityScore * 100).toFixed(1)),
@@ -79,18 +57,17 @@ exports.findSimilarPlayers = async (req, res) => {
             acs: parseFloat((acsSimilarity * 100).toFixed(1)),
             kd_ratio: parseFloat((kdrSimilarity * 100).toFixed(1)),
             adr: parseFloat((adrSimilarity * 100).toFixed(1)),
-            hs_pct: parseFloat((hsPercentSimilarity * 100).toFixed(1))
+            hs_pct: parseFloat((hsPercentSimilarity * 100).toFixed(1)),
           },
-          playstyle: parseFloat((playstyleSimilarity * 100).toFixed(1))
-        }
+          playstyle: parseFloat((playstyleSimilarity * 100).toFixed(1)),
+        },
       };
     });
-    
-    // Sort by similarity and limit results
+
     const sortedPlayers = playersWithSimilarity
       .sort((a, b) => b.similarity.overall - a.similarity.overall)
       .slice(0, parseInt(limit));
-    
+
     res.json({
       target_player: {
         id: targetPlayer.id,
@@ -101,24 +78,21 @@ exports.findSimilarPlayers = async (req, res) => {
           acs: targetPlayer.acs,
           kd_ratio: targetPlayer.kd_ratio,
           adr: targetPlayer.adr,
-          hs_pct: targetPlayer.hs_pct
+          hs_pct: targetPlayer.hs_pct,
         },
-        playstyle: targetPlayer.playstyle
+        playstyle: targetPlayer.playstyle,
       },
-      similar_players: sortedPlayers
+      similar_players: sortedPlayers,
     });
   } catch (error) {
     console.error('Error finding similar players:', error);
-    res.status(500).json({
-      message: error.message || 'An error occurred while finding similar players.'
-    });
+    res.status(500).json({ message: error.message || 'An error occurred while finding similar players.' });
   }
 };
 
-/**
- * Get market analysis of free agents
- */
-exports.getFreeAgentMarketAnalysis = async (req, res) => {
+// Other functions (getFreeAgentMarketAnalysis, generateOptimalRoster, etc.) remain unchanged
+// Export them individually as ES Modules
+export const getFreeAgentMarketAnalysis = async (req, res) => {
   try {
     const { role, region, division, min_rating } = req.query;
     
@@ -194,10 +168,7 @@ exports.getFreeAgentMarketAnalysis = async (req, res) => {
   }
 };
 
-/**
- * Generate optimal roster based on available free agents and constraints
- */
-exports.generateOptimalRoster = async (req, res) => {
+export const generateOptimalRoster = async (req, res) => {
   try {
     const { 
       region,
@@ -242,10 +213,7 @@ exports.generateOptimalRoster = async (req, res) => {
   }
 };
 
-/**
- * Compare multiple players side by side
- */
-exports.comparePlayers = async (req, res) => {
+export const comparePlayers = async (req, res) => {
   try {
     const { player_ids } = req.query;
     
@@ -308,10 +276,7 @@ exports.comparePlayers = async (req, res) => {
   }
 };
 
-/**
- * Get player valuation details and comparables
- */
-exports.getPlayerValuation = async (req, res) => {
+export const getPlayerValuation = async (req, res) => {
   try {
     const { player_id } = req.params;
     
@@ -748,5 +713,3 @@ function getExperienceValue(player) {
     return { factor: 0.9, description: 'Limited competitive experience' };
   }
 }
-
-module.exports = exports;

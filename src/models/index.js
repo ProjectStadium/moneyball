@@ -1,43 +1,41 @@
 // src/models/index.js
-const sequelize = require('../utils/database');
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-const db = {};
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Read all model files and initialize them
-fs.readdirSync(__dirname)
-  .filter(file => {
-    return (
-      file.indexOf('.') !== 0 &&
-      file !== 'index.js' &&
-      file.slice(-9) === '.model.js'
-    );
-  })
-  .forEach(file => {
-    // Initialize each model with the sequelize instance
-    const model = require(path.join(__dirname, file))(sequelize);
+export const initializeModels = async (sequelize, Sequelize) => {
+  const db = {};
+
+  // Read all model files and initialize them
+  const modelFiles = fs
+    .readdirSync(__dirname)
+    .filter(file => file.indexOf('.') !== 0 && file !== 'index.js' && file.slice(-9) === '.model.js');
+
+  for (const file of modelFiles) {
+    const model = (await import(path.join(__dirname, file))).default(sequelize, Sequelize.DataTypes);
     db[model.name] = model;
+  }
+
+  // Set up associations between models if needed
+  Object.keys(db).forEach(modelName => {
+    if (db[modelName].associate) {
+      db[modelName].associate(db);
+    }
   });
 
-// Set up associations between models if needed
-Object.keys(db).forEach(modelName => {
-  if (db[modelName].associate) {
-    db[modelName].associate(db);
-  }
-});
+  db.sequelize = sequelize;
+  db.Sequelize = Sequelize;
 
-// Define associations between Team and Player
-db.Team.hasMany(db.Player, {
-  foreignKey: 'team_abbreviation',
-  sourceKey: 'team_abbreviation'
-});
-db.Player.belongsTo(db.Team, {
-  foreignKey: 'team_abbreviation',
-  targetKey: 'team_abbreviation'
-});
+  return db;
+};
 
-db.sequelize = sequelize;
-db.Sequelize = require('sequelize');
+// Export `db` as a named export
+export let db = null;
 
-module.exports = db;
+// Function to initialize and set `db`
+export const initializeDb = async (sequelize, Sequelize) => {
+  db = await initializeModels(sequelize, Sequelize);
+};

@@ -1,8 +1,11 @@
 // src/utils/testDatabase.js
-const { Sequelize } = require('sequelize');
-const config = require('../config/config.json');
+import { Sequelize } from 'sequelize';
+import config from '../config/config.json' assert { type: 'json' };
 
+// Extract test configuration
 const testConfig = config.test;
+
+// Initialize Sequelize instance for testing
 const sequelize = new Sequelize(
   testConfig.database,
   testConfig.username,
@@ -10,8 +13,8 @@ const sequelize = new Sequelize(
   {
     host: testConfig.host,
     dialect: testConfig.dialect,
-    logging: false // Suppress logging during tests
+    logging: false, // Suppress logging during tests
   }
 );
 
-module.exports = sequelize;
+export default sequelize;

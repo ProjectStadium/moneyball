@@ -1,26 +1,30 @@
-// src/utils/importData.js
-const fs = require('fs');
-const path = require('path');
-const Papa = require('papaparse');
-const { v4: uuidv4 } = require('uuid');
-const db = require('../models');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import Papa from 'papaparse';
+import { v4 as uuidv4 } from 'uuid';
+import { db } from '../models/index.js';
 
-async function importTeamsFromCSV() {
+// Helper to resolve __dirname in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+export async function importTeamsFromCSV() {
   // Read the teams CSV file
   const teamsFilePath = path.join(__dirname, '../../data/updated_esport_teams.csv');
   const teamsCsv = fs.readFileSync(teamsFilePath, 'utf8');
-  
+
   // Parse the CSV data
   const teamsData = Papa.parse(teamsCsv, {
     header: true,
     dynamicTyping: true,
-    skipEmptyLines: true
+    skipEmptyLines: true,
   }).data;
 
   console.log(`Processed ${teamsData.length} teams from CSV`);
 
   // Format the data for database insertion
-  const formattedTeams = teamsData.map(team => ({
+  const formattedTeams = teamsData.map((team) => ({
     id: uuidv4(),
     team_abbreviation: team.team_abbreviation,
     full_team_name: team.full_team_name,
@@ -34,34 +38,34 @@ async function importTeamsFromCSV() {
     earnings: team.earnings,
     founded_year: team.founded_year,
     game: team.game,
-    logo_url: team.logo_url
+    logo_url: team.logo_url,
   }));
 
   // Bulk insert teams with duplicate handling
   await db.Team.bulkCreate(formattedTeams, {
     ignoreDuplicates: true,
-    updateOnDuplicate: ['team_abbreviation']
+    updateOnDuplicate: ['team_abbreviation'],
   });
 
   console.log(`Imported ${formattedTeams.length} teams to database`);
 }
 
-async function importPlayersFromCSV() {
+export async function importPlayersFromCSV() {
   // Read the players CSV file
   const playersFilePath = path.join(__dirname, '../../data/valorant_players.csv');
   const playersCsv = fs.readFileSync(playersFilePath, 'utf8');
-  
+
   // Parse the CSV data
   const playersData = Papa.parse(playersCsv, {
     header: true,
     dynamicTyping: true,
-    skipEmptyLines: true
+    skipEmptyLines: true,
   }).data;
 
   console.log(`Processed ${playersData.length} players from CSV`);
 
   // Format the data for database insertion
-  const formattedPlayers = playersData.map(player => ({
+  const formattedPlayers = playersData.map((player) => ({
     id: uuidv4(),
     name: player.name,
     full_identifier: player.full_identifier,
@@ -85,20 +89,19 @@ async function importPlayersFromCSV() {
     current_act: player.current_act,
     leaderboard_rank: player.leaderboard_rank,
     ranked_rating: player.ranked_rating,
-    number_of_wins: player.number_of_wins
+    number_of_wins: player.number_of_wins,
   }));
 
   // Bulk insert players with duplicate handling
   await db.Player.bulkCreate(formattedPlayers, {
     ignoreDuplicates: true,
-    updateOnDuplicate: ['name']
+    updateOnDuplicate: ['name'],
   });
 
   console.log(`Imported ${formattedPlayers.length} players to database`);
 }
 
-// Main import function
-async function importAllData() {
+export async function importAllData() {
   try {
     // Import teams first to establish foreign key relationships
     await importTeamsFromCSV();
@@ -112,11 +115,10 @@ async function importAllData() {
   }
 }
 
-// Command-line executable function
-async function runImport() {
+export async function runImport() {
   console.log('Starting data import process...');
   const result = await importAllData();
-  
+
   if (result.success) {
     console.log('Import completed successfully!');
     process.exit(0);
@@ -127,8 +129,6 @@ async function runImport() {
 }
 
 // If this file is being run directly (not imported)
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runImport();
 }
-
-module.exports = { importAllData, importTeamsFromCSV, importPlayersFromCSV, runImport };

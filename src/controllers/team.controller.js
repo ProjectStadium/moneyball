@@ -1,31 +1,20 @@
-// src/controllers/team.controller.js
-const db = require('../models');
+import { Op } from 'sequelize';
+import { db } from '../models/index.js';
+
 const Team = db.Team;
 const Player = db.Player;
-const { Op } = require('sequelize');
 
 // Get all teams with optional filtering
-exports.findAll = async (req, res) => {
+export const findAll = async (req, res) => {
   try {
-    // Extract query parameters
-    const { 
-      name, 
-      region, 
-      country_code,
-      min_rank,
-      max_rank,
-      limit = 100,
-      offset = 0
-    } = req.query;
-    
-    // Build filter conditions
+    const { name, region, country_code, min_rank, max_rank, limit = 100, offset = 0 } = req.query;
+
     const condition = {};
-    
     if (name) {
       condition[Op.or] = [
         { team_abbreviation: { [Op.iLike]: `%${name}%` } },
         { full_team_name: { [Op.iLike]: `%${name}%` } },
-        { tag: { [Op.iLike]: `%${name}%` } }
+        { tag: { [Op.iLike]: `%${name}%` } },
       ];
     }
     if (region) condition.region = region;
@@ -33,30 +22,27 @@ exports.findAll = async (req, res) => {
     if (min_rank) condition.rank = { ...condition.rank, [Op.gte]: parseInt(min_rank) };
     if (max_rank) condition.rank = { ...condition.rank, [Op.lte]: parseInt(max_rank) };
 
-    // Fetch teams with pagination
     const teams = await Team.findAndCountAll({
       where: condition,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      order: [['rank', 'ASC']]
+      order: [['rank', 'ASC']],
     });
 
     res.json({
       total: teams.count,
       limit: parseInt(limit),
       offset: parseInt(offset),
-      data: teams.rows
+      data: teams.rows,
     });
   } catch (error) {
     console.error('Error retrieving teams:', error);
-    res.status(500).send({
-      message: error.message || 'An error occurred while retrieving teams.'
-    });
+    res.status(500).send({ message: error.message || 'An error occurred while retrieving teams.' });
   }
 };
 
 // Get a single team by id or abbreviation
-exports.findOne = async (req, res) => {
+export const findOne = async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -87,7 +73,7 @@ exports.findOne = async (req, res) => {
 };
 
 // Get team roster
-exports.getTeamRoster = async (req, res) => {
+export const getTeamRoster = async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -121,7 +107,7 @@ exports.getTeamRoster = async (req, res) => {
 };
 
 // Get teams by region
-exports.getTeamsByRegion = async (req, res) => {
+export const getTeamsByRegion = async (req, res) => {
   try {
     const { region } = req.params;
     
@@ -140,7 +126,7 @@ exports.getTeamsByRegion = async (req, res) => {
 };
 
 // Get top teams
-exports.getTopTeams = async (req, res) => {
+export const getTopTeams = async (req, res) => {
   try {
     const { limit = 10 } = req.query;
     

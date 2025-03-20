@@ -1,9 +1,18 @@
 // src/app.js
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const morgan = require('morgan');
-const db = require('./models');
+import dotenv from 'dotenv';
+
+// Load environment variables from .env or .env.test
+dotenv.config();
+
+import express from 'express';
+import cors from 'cors';
+import morgan from 'morgan';
+import { db } from './models/index.js'; // Ensure models/index.js is converted to ES Modules
+import playerRoutes from './routes/player.routes.js';
+import teamRoutes from './routes/team.routes.js';
+import analysisRoutes from './routes/analysis.routes.js';
+import adminRoutes from './routes/admin.routes.js';
+import scheduler from './services/scheduler.service.js';
 
 // Initialize Express
 const app = express();
@@ -20,39 +29,12 @@ app.get('/', (req, res) => {
 });
 
 // Import routes
-app.use('/api/players', require('./routes/player.routes'));
-app.use('/api/teams', require('./routes/team.routes'));
-app.use('/api/analysis', require('./routes/analysis.routes'));
-
-// Admin routes (should be protected in production)
-app.use('/api/admin', require('./routes/admin.routes'));
+app.use('/api/players', playerRoutes);
+app.use('/api/teams', teamRoutes);
+app.use('/api/analysis', analysisRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Initialize the scheduler when the application starts
-const scheduler = require('./services/scheduler.service');
 scheduler.init();
 
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  const statusCode = err.statusCode || 500;
-  console.error(err.message, err.stack);
-  res.status(statusCode).json({ 
-    message: err.message,
-    stack: process.env.NODE_ENV === 'production' ? '🥞' : err.stack
-  });
-});
-
-// Start server
-app.listen(PORT, async () => {
-  console.log(`Server is running on port ${PORT}`);
-  
-  // Sync database models
-  try {
-    await db.sequelize.sync();
-    console.log('Database synchronized successfully');
-  } catch (error) {
-    console.error('Failed to sync database:', error);
-  }
-});
-
-module.exports = app;
+export default app;

@@ -7,13 +7,21 @@ process.env.POSTGRES_PASSWORD = 'FourZero26!';
 process.env.NODE_ENV = 'test';
 
 // AFTER setting environment variables, import the database
-const db = require('../../src/models');
+const { Sequelize } = require('sequelize');
+const initModels = require('../../src/models');
+
+const sequelize = new Sequelize('test_db', 'test_user', 'test_password', {
+  host: 'localhost',
+  port: 5432,
+  dialect: 'postgres' // Explicitly supply the dialect
+});
+const db = initModels(sequelize, Sequelize);
 
 // Global setup for tests
 beforeAll(async () => {
   // Connect to test database
   try {
-    await db.sequelize.authenticate();
+    await sequelize.authenticate();
     console.log('Test database connection established');
   } catch (error) {
     console.error('Unable to connect to test database:', error);
@@ -25,6 +33,4 @@ afterAll(async () => {
   await db.sequelize.close();
 });
 
-module.exports = {
-  // Export any helper functions needed by tests
-};
+module.exports = db;
