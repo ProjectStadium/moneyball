@@ -1,14 +1,6 @@
 // __tests__/utils/database.test.js
 const { Sequelize } = require('sequelize');
 
-// Mock environment variables before importing
-process.env.POSTGRES_HOST = 'localhost';
-process.env.POSTGRES_PORT = '5432';
-process.env.POSTGRES_DB = 'moneyball_test';
-process.env.POSTGRES_USER = 'esports_user';
-process.env.POSTGRES_PASSWORD = 'FourZero26!';
-process.env.NODE_ENV = 'test';
-
 // Mock Sequelize
 jest.mock('sequelize', () => {
   const mockSequelizeInstance = {
@@ -25,10 +17,41 @@ jest.mock('sequelize', () => {
   };
 });
 
+jest.mock('../../src/models', () => ({
+  sequelize: {
+    authenticate: jest.fn().mockResolvedValue(true),
+    close: jest.fn().mockResolvedValue(true)
+  },
+  Sequelize: {
+    DataTypes: jest.fn(),
+    Op: {
+      eq: 'eq',
+      ne: 'ne'
+    }
+  },
+  Player: {
+    findByPk: jest.fn(),
+    findAll: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn(),
+    destroy: jest.fn()
+  }
+}));
+
 // Mock console methods
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
+
+const db = require('../../src/models');
+
+beforeAll(async () => {
+  await db.sequelize.authenticate();
+});
+
+afterAll(async () => {
+  await db.sequelize.close();
+});
 
 describe('Database Utility', () => {
   beforeEach(() => {

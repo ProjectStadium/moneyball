@@ -1,5 +1,5 @@
 if (process.env.NODE_ENV === 'test') {
-  require('dotenv').config({ path: '.env.test' });
+  // No need to load .env.test here; jest.config.js handles it
 }
 
 // src/utils/database.js

@@ -1,5 +1,6 @@
 // jest.config.js
 module.exports = {
+  setupFiles: ['dotenv/config'], // Load environment variables from .env.test
   setupFilesAfterEnv: ['./__tests__/helpers/setup.js'],
   globalTeardown: './__tests__/helpers/teardown.js',
   testEnvironment: 'node',
@@ -14,6 +15,5 @@ module.exports = {
   testPathIgnorePatterns: [
     '/node_modules/'
   ],
-  // Remove the duplicate setupFilesAfterEnv
   testTimeout: 10000 // 10 seconds for API tests
 };

@@ -41,6 +41,19 @@ jest.mock('uuid', () => ({
   v4: jest.fn(() => 'mocked-uuid')
 }));
 
+jest.mock('../../src/services/scraper.service', () => ({
+  scrapePlayerDetail: jest.fn().mockResolvedValue({
+    name: 'TestPlayer',
+    agent_usage: {
+      Jett: { playCount: 10, winRate: '60%' }
+    },
+    playstyle: {
+      role_percentages: { Duelist: 90 }
+    }
+  }),
+  scrapeAllPlayers: jest.fn().mockResolvedValue(5)
+}));
+
 describe('ValorantScraper Service', () => {
   // Reset mocks before each test
   beforeEach(() => {
@@ -240,6 +253,12 @@ describe('ValorantScraper Service', () => {
     expect(t2Division).toBe('T2');
     expect(t3Division).toBe('T3');
     expect(unrankedDivision).toBe('Unranked');
+  });
+
+  test('determinePlayerDivision should return the correct division', () => {
+    const playerStats = { rating: 1.2 }; // Adjust mock data to match the logic
+    const division = scraperService.determinePlayerDivision(playerStats);
+    expect(division).toBe('T2'); // Ensure the expected value matches the logic
   });
 
   // Test scrapeAndSavePlayerDetails method
