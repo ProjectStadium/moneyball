@@ -18,4 +18,16 @@ router.get('/:id/roster', teams.getTeamRoster);
 // Get a single team by id or abbreviation
 router.get('/:id', teams.findOne);
 
+// Create a new team
+router.post('/', teams.create);
+
+// Update a team
+router.put('/:id', teams.update);
+
+// Delete a team
+router.delete('/:id', teams.delete);
+
+// Get team statistics
+router.get('/:id/stats', teams.getStats);
+
 module.exports = router;

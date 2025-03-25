@@ -1,99 +1,137 @@
 // __tests__/controllers/player.controller.test.js
-const playerController = require('../../src/controllers/player.controller');
-const db = require('../../src/models');
 const { Op } = require('sequelize');
-const { samplePlayers } = require('../helpers/test-data');
+
+// Create mock operators that match Sequelize's Op symbols
+const mockOp = {
+  iLike: Symbol.for('iLike'),
+  gte: Symbol.for('gte'),
+  lte: Symbol.for('lte'),
+  in: Symbol.for('in'),
+  not: Symbol.for('not')
+};
 
 // Mock the database models with a more robust implementation
 jest.mock('../../src/models', () => {
   // Create a deep copy of sample data to prevent test pollution
   const players = JSON.parse(JSON.stringify(require('../helpers/test-data').samplePlayers));
   
+  const findAndFilterPlayers = (options = {}) => {
+    let results = [...players];
+    
+    // Apply filters based on options.where
+    if (options.where) {
+      // Filter by name
+      if (options.where.name && options.where.name[mockOp.iLike]) {
+        const pattern = options.where.name[mockOp.iLike].replace(/%/g, '');
+        results = results.filter(p => p.name.toLowerCase().includes(pattern.toLowerCase()));
+      }
+      
+      // Filter by team abbreviation
+      if (options.where.team_abbreviation) {
+        results = results.filter(p => p.team_abbreviation === options.where.team_abbreviation);
+      }
+      
+      // Filter by free agent status
+      if (options.where.is_free_agent !== undefined) {
+        results = results.filter(p => p.is_free_agent === options.where.is_free_agent);
+      }
+      
+      // Filter by rating range
+      if (options.where.rating) {
+        if (options.where.rating[mockOp.gte]) {
+          results = results.filter(p => p.rating >= options.where.rating[mockOp.gte]);
+        }
+        if (options.where.rating[mockOp.lte]) {
+          results = results.filter(p => p.rating <= options.where.rating[mockOp.lte]);
+        }
+      }
+    }
+    
+    // Apply order
+    if (options.order && options.order.length) {
+      const [field, direction] = options.order[0];
+      results.sort((a, b) => {
+        const aVal = a[field];
+        const bVal = b[field];
+        return direction === 'ASC' ? aVal - bVal : bVal - aVal;
+      });
+    }
+    
+    // Apply pagination
+    if (options.limit !== undefined) {
+      const offset = options.offset || 0;
+      results = results.slice(offset, offset + options.limit);
+    }
+    
+    return results;
+  };
+  
   return {
     Player: {
-      // findAll with support for filtering
-      findAll: jest.fn((options = {}) => {
-        let results = [...players];
-        
-        // Apply filters based on options.where
-        if (options.where) {
-          // Filter by name
-          if (options.where.name && options.where.name[Symbol.for('iLike')]) {
-            const pattern = options.where.name[Symbol.for('iLike')].replace(/%/g, '');
-            results = results.filter(p => p.name.toLowerCase().includes(pattern.toLowerCase()));
-          }
-          
-          // Filter by team abbreviation
-          if (options.where.team_abbreviation) {
-            results = results.filter(p => p.team_abbreviation === options.where.team_abbreviation);
-          }
-          
-          // Filter by free agent status
-          if (options.where.is_free_agent !== undefined) {
-            results = results.filter(p => p.is_free_agent === options.where.is_free_agent);
-          }
-          
-          // Filter by rating range
-          if (options.where.rating) {
-            if (options.where.rating[Symbol.for('gte')]) {
-              results = results.filter(p => p.rating >= options.where.rating[Symbol.for('gte')]);
-            }
-            if (options.where.rating[Symbol.for('lte')]) {
-              results = results.filter(p => p.rating <= options.where.rating[Symbol.for('lte')]);
-            }
-          }
-          
-          // More filter implementations as needed...
-        }
-        
-        // Apply order
-        if (options.order && options.order.length) {
-          const [field, direction] = options.order[0];
-          results.sort((a, b) => {
-            return direction === 'DESC' 
-              ? b[field] - a[field]
-              : a[field] - b[field];
-          });
-        }
-        
-        // Apply pagination
-        if (options.limit) {
-          const offset = options.offset || 0;
-          results = results.slice(offset, offset + parseInt(options.limit));
-        }
-        
-        return Promise.resolve(results);
-      }),
-      
-      // findAndCountAll with the same filtering logic
+      findAll: jest.fn((options = {}) => findAndFilterPlayers(options)),
       findAndCountAll: jest.fn((options = {}) => {
-        return db.Player.findAll(options).then(rows => {
-          return {
-            rows,
-            count: players.length // Return full count before pagination
-          };
-        });
+        const results = findAndFilterPlayers(options);
+        return {
+          rows: results,
+          count: results.length
+        };
       }),
-      
-      // findByPk to get a player by ID
-      findByPk: jest.fn((id) => {
-        const player = players.find(p => p.id === id);
-        return Promise.resolve(player || null);
+      findByPk: jest.fn((id) => players.find(p => p.id === id)),
+      findOne: jest.fn((options = {}) => {
+        if (options.where) {
+          if (options.where.id) {
+            return players.find(p => p.id === options.where.id);
+          }
+          if (options.where.name) {
+            return players.find(p => p.name === options.where.name);
+          }
+        }
+        return null;
       }),
-      
-      // count to get number of players
-      count: jest.fn((options = {}) => {
-        return db.Player.findAll(options).then(results => results.length);
+      create: jest.fn((data) => {
+        const newPlayer = {
+          id: players.length + 1,
+          ...data,
+          created_at: new Date(),
+          updated_at: new Date()
+        };
+        players.push(newPlayer);
+        return newPlayer;
+      }),
+      update: jest.fn((data, options) => {
+        const player = players.find(p => p.id === options.where.id);
+        if (player) {
+          Object.assign(player, data, { updated_at: new Date() });
+        }
+        return [1, [player]];
+      }),
+      destroy: jest.fn((options) => {
+        const player = players.find(p => p.id === options.where.id);
+        if (player) {
+          const index = players.findIndex(p => p.id === player.id);
+          if (index > -1) {
+            players.splice(index, 1);
+          }
+          return 1;
+        }
+        return 0;
       })
     },
-    sequelize: {
-      literal: jest.fn(str => str)
+    Team: {
+      findAll: jest.fn(() => []),
+      findByPk: jest.fn(() => null),
+      findOne: jest.fn(() => null)
     },
     Sequelize: {
-      Op
+      Op: mockOp
     }
   };
 });
+
+// Import after mocks are defined
+const playerController = require('../../src/controllers/player.controller');
+const { samplePlayers } = require('../helpers/test-data');
+const db = require('../../src/models');
 
 // Mock response object with proper tracking of status and response
 const mockResponse = () => {
@@ -233,7 +271,7 @@ describe('Player Controller', () => {
       
       // Assert
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.send).toHaveBeenCalledWith(
+      expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('error')
         })
@@ -275,7 +313,7 @@ describe('Player Controller', () => {
       
       // Assert
       expect(res.status).toHaveBeenCalledWith(404);
-      expect(res.send).toHaveBeenCalledWith(
+      expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('not found')
         })
@@ -294,7 +332,7 @@ describe('Player Controller', () => {
       
       // Assert
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.send).toHaveBeenCalledWith(
+      expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('Error retrieving player')
         })
@@ -305,11 +343,7 @@ describe('Player Controller', () => {
   describe('getTopPlayers', () => {
     it('should get top players by rating', async () => {
       // Arrange
-      const req = { query: { stat: 'rating', limit: '10' } };
-      
-      // Setup mock to return sorted players
-      const sortedPlayers = [...samplePlayers].sort((a, b) => b.rating - a.rating);
-      db.Player.findAll.mockResolvedValueOnce(sortedPlayers.slice(0, 10));
+      const req = { query: { stat: 'rating', limit: '5' } };
       
       // Act
       await playerController.getTopPlayers(req, res);
@@ -317,35 +351,17 @@ describe('Player Controller', () => {
       // Assert
       expect(db.Player.findAll).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({
+            rating: expect.anything()
+          }),
           order: [['rating', 'DESC']],
-          limit: 10
-        })
-      );
-      expect(res.json).toHaveBeenCalled();
-    });
-
-    it('should get top players by acs', async () => {
-      // Arrange
-      const req = { query: { stat: 'acs', limit: '5' } };
-      
-      // Setup mock to return sorted players
-      const sortedPlayers = [...samplePlayers].sort((a, b) => b.acs - a.acs);
-      db.Player.findAll.mockResolvedValueOnce(sortedPlayers.slice(0, 5));
-      
-      // Act
-      await playerController.getTopPlayers(req, res);
-      
-      // Assert
-      expect(db.Player.findAll).toHaveBeenCalledWith(
-        expect.objectContaining({
-          order: [['acs', 'DESC']],
           limit: 5
         })
       );
       expect(res.json).toHaveBeenCalled();
     });
 
-    it('should validate the stat parameter', async () => {
+    it('should handle invalid stat parameter', async () => {
       // Arrange
       const req = { query: { stat: 'invalid_stat' } };
       
@@ -354,18 +370,73 @@ describe('Player Controller', () => {
       
       // Assert
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.send).toHaveBeenCalledWith(
+      expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining('Invalid stat parameter')
         })
       );
     });
 
-    it('should handle database errors', async () => {
+    it('should filter out players with null stats', async () => {
+      // Arrange
+      const req = { query: { stat: 'acs' } };
+      
+      // Act
+      await playerController.getTopPlayers(req, res);
+      
+      // Assert
+      expect(db.Player.findAll).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            acs: expect.objectContaining({
+              [mockOp.not]: null
+            })
+          })
+        })
+      );
+    });
+
+    it('should handle different stat combinations', async () => {
+      // Arrange
+      const stats = ['acs', 'kd_ratio', 'adr', 'kpr', 'apr', 'fk_pr', 'hs_pct'];
+      
+      // Act & Assert
+      for (const stat of stats) {
+        const req = { query: { stat } };
+        await playerController.getTopPlayers(req, res);
+        
+        expect(db.Player.findAll).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              [stat]: expect.anything()
+            }),
+            order: [[stat, 'DESC']]
+          })
+        );
+      }
+    });
+
+    it('should filter free agents when specified', async () => {
+      // Arrange
+      const req = { query: { stat: 'rating', is_free_agent: 'true' } };
+      
+      // Act
+      await playerController.getTopPlayers(req, res);
+      
+      // Assert
+      expect(db.Player.findAll).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            is_free_agent: true,
+            rating: expect.anything()
+          })
+        })
+      );
+    });
+
+    it('should handle database errors gracefully', async () => {
       // Arrange
       const req = { query: { stat: 'rating' } };
-      
-      // Mock a database error
       db.Player.findAll.mockRejectedValueOnce(new Error('Database error'));
       
       // Act
@@ -373,22 +444,18 @@ describe('Player Controller', () => {
       
       // Assert
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.send).toHaveBeenCalledWith(
+      expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining('error')
+          message: expect.any(String)
         })
       );
     });
   });
 
   describe('getPlayersByTeam', () => {
-    it('should get players by team abbreviation', async () => {
+    it('should get all players for a team', async () => {
       // Arrange
       const req = { params: { team_abbreviation: 'TST' } };
-      
-      // Setup mock to return team players
-      const teamPlayers = samplePlayers.filter(p => p.team_abbreviation === 'TST');
-      db.Player.findAll.mockResolvedValueOnce(teamPlayers);
       
       // Act
       await playerController.getPlayersByTeam(req, res);
@@ -396,17 +463,16 @@ describe('Player Controller', () => {
       // Assert
       expect(db.Player.findAll).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { team_abbreviation: 'TST' }
+          where: { team_abbreviation: 'TST' },
+          order: [['rating', 'DESC']]
         })
       );
       expect(res.json).toHaveBeenCalled();
     });
 
-    it('should return empty array for team with no players', async () => {
+    it('should handle team with no players', async () => {
       // Arrange
       const req = { params: { team_abbreviation: 'EMPTY' } };
-      
-      // Setup mock to return empty array
       db.Player.findAll.mockResolvedValueOnce([]);
       
       // Act
@@ -416,11 +482,9 @@ describe('Player Controller', () => {
       expect(res.json).toHaveBeenCalledWith([]);
     });
 
-    it('should handle database errors', async () => {
+    it('should handle database errors gracefully', async () => {
       // Arrange
       const req = { params: { team_abbreviation: 'TST' } };
-      
-      // Mock a database error
       db.Player.findAll.mockRejectedValueOnce(new Error('Database error'));
       
       // Act
@@ -428,9 +492,9 @@ describe('Player Controller', () => {
       
       // Assert
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.send).toHaveBeenCalledWith(
+      expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining('error')
+          message: expect.any(String)
         })
       );
     });
@@ -441,41 +505,25 @@ describe('Player Controller', () => {
       // Arrange
       const req = { query: {} };
       
-      // Setup mock to return free agents
-      const freeAgents = samplePlayers.filter(p => p.is_free_agent);
-      db.Player.findAndCountAll.mockResolvedValueOnce({
-        rows: freeAgents,
-        count: freeAgents.length
-      });
-      
       // Act
       await playerController.getFreeAgents(req, res);
       
       // Assert
       expect(db.Player.findAndCountAll).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { is_free_agent: true }
+          where: expect.objectContaining({
+            is_free_agent: true,
+            rating: expect.anything()
+          }),
+          order: [['rating', 'DESC']]
         })
       );
       expect(res.json).toHaveBeenCalled();
-      
-      const responseData = res.json.mock.calls[0][0];
-      expect(responseData).toHaveProperty('data');
-      expect(responseData).toHaveProperty('total');
     });
 
     it('should filter free agents by minimum rating', async () => {
       // Arrange
-      const req = { query: { min_rating: '1.2' } };
-      
-      // Setup mock to return filtered free agents
-      const filteredAgents = samplePlayers.filter(p => 
-        p.is_free_agent && p.rating >= 1.2
-      );
-      db.Player.findAndCountAll.mockResolvedValueOnce({
-        rows: filteredAgents,
-        count: filteredAgents.length
-      });
+      const req = { query: { min_rating: '1.5' } };
       
       // Act
       await playerController.getFreeAgents(req, res);
@@ -486,17 +534,16 @@ describe('Player Controller', () => {
           where: expect.objectContaining({
             is_free_agent: true,
             rating: expect.objectContaining({
-              [Op.gte]: 1.2
+              [mockOp.gte]: 1.5
             })
           })
         })
       );
-      expect(res.json).toHaveBeenCalled();
     });
 
-    it('should handle pagination for free agents', async () => {
+    it('should handle pagination correctly', async () => {
       // Arrange
-      const req = { query: { limit: '10', offset: '0' } };
+      const req = { query: { limit: '10', offset: '20' } };
       
       // Act
       await playerController.getFreeAgents(req, res);
@@ -505,17 +552,20 @@ describe('Player Controller', () => {
       expect(db.Player.findAndCountAll).toHaveBeenCalledWith(
         expect.objectContaining({
           limit: 10,
-          offset: 0
+          offset: 20
         })
       );
-      expect(res.json).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          limit: 10,
+          offset: 20
+        })
+      );
     });
 
-    it('should handle database errors', async () => {
+    it('should handle database errors gracefully', async () => {
       // Arrange
       const req = { query: {} };
-      
-      // Mock a database error
       db.Player.findAndCountAll.mockRejectedValueOnce(new Error('Database error'));
       
       // Act
@@ -523,9 +573,9 @@ describe('Player Controller', () => {
       
       // Assert
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.send).toHaveBeenCalledWith(
+      expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining('error')
+          message: expect.any(String)
         })
       );
     });

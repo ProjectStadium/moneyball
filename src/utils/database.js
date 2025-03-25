@@ -1,9 +1,4 @@
-if (process.env.NODE_ENV === 'test') {
-  // No need to load .env.test here; jest.config.js handles it
-}
-
 // src/utils/database.js
-require('dotenv').config();
 const { Sequelize } = require('sequelize');
 
 // Validate required environment variables
@@ -31,7 +26,7 @@ const sequelize = new Sequelize(
     host: process.env.POSTGRES_HOST,
     port: process.env.POSTGRES_PORT,
     dialect: 'postgres',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    logging: console.log, // Enable SQL logging
     pool: {
       max: 5,     // Maximum number of connection in pool
       min: 0,     // Minimum number of connection in pool
@@ -54,11 +49,12 @@ const testConnection = async () => {
     console.log('PostgreSQL connection has been established successfully.');
   } catch (error) {
     console.error('Unable to connect to the database:', error);
-    process.exit(1);
+    throw error; // Rethrow to handle in the calling code
   }
 };
 
-// Initialize database connection
-testConnection();
-
-module.exports = sequelize;
+// Export the sequelize instance
+module.exports = {
+  sequelize,
+  testConnection
+};

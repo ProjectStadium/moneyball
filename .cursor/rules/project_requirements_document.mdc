@@ -1,0 +1,72 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Update this rule is user requested changes to the project requirement, etc.
+#Project Requirements Document (PRD)
+
+## Project Description
+
+WINRVTE, the moneyball for esports, is an analytics tool that will help Valorant players (for now) that are `free-agents` become marketable towards new organizations that want to enter into the Valorant competitive scene AND help existing organizations build better roster depth.
+
+As an org owner BLVKHVND (playing in Game Changers EMEA) I've been messaged countless times by players looking for a spot on our roster and I have always been sad to turn them away nor provide them an alternative. With WINRVTE, free agents can have stronger visibility to orgs looking to break into Valorant as well as find other compatible players to compete in all of the open qualifiers from T2/T3 spaces.
+
+The product is designed to aggregate player data and trends within the free agent space to help orgs analyze the types of play styles they want for their roster builds. They can also do a mock roster draft to see how players might complement each other. On the free agent side, players can opt into sharing their competitive data to learn of their value if they are to be recruited.
+
+Within the regions and markets of Valorant, I have been able to accrue industry knowledge on the salary range of players and my goal is to make that information more transparent so that players know their worth, can negotiate with orgs better AND that new orgs understand the true cost of entering in the competitive space so that they are less likely to participate short term and fizzle out when their funds dry up.
+
+<aside>
+📌
+The goal is after disrupting the Valorant scene, we can expand to all popular and emerging titles, predict what the player scene can look like, and the earning potential of brands, orgs, and players alike. 
+</aside>
+
+## In-Scope vs Out of Scope Feature Set
+
+**In-Scope Features**
+- Web scraper of VLR.gg to pull core player data, player statistics, etc
+- Usage of Liquipedia's APIs to pull tournament, earnings data, media assets (images, logos, etc), etc
+- Combination of scraper, APIs, and player input to complete profiles
+- Analysis of player, tournament, earnings, usage data to compare and generate reports
+- Roster Builder tool to try different combinations of players and assess their potential winrate against other rosters
+- Connection to RIOT's API for more rich game data and player opt-in (for their data to be reported on)
+- Sign in with RIOT
+- Free and Paid Subscription Tiers with access to data and reporting (built with Stripe)
+- Free and Paid Single Reports with access to data and reporting (built with Stripe)
+- Priority on Players without teams: `free-agents`
+
+**Out of Scope Features**
+- Salary trends
+-
+
+## User Flow
+The main intent of this app is to highlight free agent players (players without teams) so that organizations, scouts, coaches, and other players looking for players to compete with can find them easily. 
+
+But this is not a queue / matchmaking site. Using tournament data, earnings data, player data this app's priority is to give objective and some subjective reporting on players and their capacity to achieve in competition. 
+
+Users should be able to look up players by region, by competitive tier, by agent type and compare them with others. There is also a component to assign a `salary` value to players as I know how these players would be priced if an organization is looking to hire and build a roster.
+
+Lastly, there will be a roster maker where you can assemble a 5 player squad and see how much your budget would be a month, their potential to win tournaments, and so on.
+
+
+
+## Goals of the App
+
+1. Identify free-agent players who are unsigned
+2. Identify their base value denoted in `salary` this helps scouts, org owners, and players have an understanding of their potential value/worth so they can negotiate fair value if they are to be hired. This might also create some issues among community members if they feel that their value is under or over BUT we can figure out a way to massage that.
+3. Compare their performances against other free agents in the following categories:
+- basic stats (KDR/ACS/etc) 
+- by region
+- by division (T1/T2/T3 (Game Changers)/T4 (Collegiate))
+- by playstyle (agent usage eg "if they are a controller, they are an "in-game leader" vs a duelist they are the "fragger")
+4. Generate reports based on these comparisons and give the following suggestions:
+- How these players might fit into an overall roster 
+- If they are over/under valued
+- How many players are available based on playstyle (eg; "I am looking for IGLs, so I would filter by "Controller / Sentinel" dominant players)
+
+
+
+
+
+
+

@@ -41,283 +41,344 @@ jest.mock('uuid', () => ({
   v4: jest.fn(() => 'mocked-uuid')
 }));
 
-jest.mock('../../src/services/scraper.service', () => ({
-  scrapePlayerDetail: jest.fn().mockResolvedValue({
-    name: 'TestPlayer',
-    agent_usage: {
-      Jett: { playCount: 10, winRate: '60%' }
-    },
-    playstyle: {
-      role_percentages: { Duelist: 90 }
-    }
-  }),
-  scrapeAllPlayers: jest.fn().mockResolvedValue(5)
+jest.mock('cheerio', () => ({
+  load: jest.fn()
 }));
 
-describe('ValorantScraper Service', () => {
-  // Reset mocks before each test
+describe('Scraper Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  // Test makeRequest method
-  test('makeRequest should call axios with correct parameters', async () => {
-    // Setup
-    const mockResponse = { data: 'mock html content' };
-    axios.get.mockResolvedValue(mockResponse);
-    
-    // Execute
-    const result = await scraperService.makeRequest('https://www.vlr.gg/test');
-    
-    // Verify
-    expect(axios.get).toHaveBeenCalledWith('https://www.vlr.gg/test', expect.objectContaining({
-      headers: expect.objectContaining({
-        'User-Agent': expect.any(String)
-      })
-    }));
-    expect(result).toBe('mock html content');
+  describe('makeRequest', () => {
+    it('should make a successful request', async () => {
+      // Arrange
+      const url = 'https://example.com';
+      const mockResponse = {
+        data: '<html>Test data</html>',
+        status: 200
+      };
+      axios.get.mockResolvedValueOnce(mockResponse);
+
+      // Act
+      const result = await scraperService.makeRequest(url);
+
+      // Assert
+      expect(axios.get).toHaveBeenCalledWith(url, expect.any(Object));
+      expect(result).toBe(mockResponse.data);
+    });
+
+    it('should handle request errors', async () => {
+      // Arrange
+      const url = 'https://example.com';
+      axios.get.mockRejectedValueOnce(new Error('Network error'));
+
+      // Act & Assert
+      await expect(scraperService.makeRequest(url)).rejects.toThrow('Network error');
+    });
   });
 
-  // Test makeRequest error handling
-  test('makeRequest should handle errors properly', async () => {
-    // Setup
-    axios.get.mockRejectedValue(new Error('Network Error'));
-    
-    // Execute & Verify
-    await expect(scraperService.makeRequest('https://www.vlr.gg/error')).rejects.toThrow('Network Error');
-  });
-
-  // Test scrapePlayerList method
-  test('scrapePlayerList should parse player data correctly', async () => {
-    // Setup - Mock the HTML response with player data
-    const mockHtml = `
-      <div class="wf-card">
-        <div class="mod-player"><a href="/player/123">TestPlayer</a><img src="/img/player.jpg"></div>
-        <div class="mod-team">Test Team</div>
-        <div class="stats-player-country">Test Country</div>
-        <div class="mod-flag mod-US"></div>
-        <div class="stats-center">250</div>
-        <div class="stats-center">1.2</div>
-        <div class="stats-center">150</div>
-        <div class="stats-center">0.8</div>
-        <div class="stats-center">0.6</div>
-        <div class="stats-center">0.15</div>
-        <div class="stats-center">0.12</div>
-        <div class="stats-center">25%</div>
-      </div>
-    `;
-    
-    axios.get.mockResolvedValue({ data: mockHtml });
-    
-    // Execute
-    const players = await scraperService.scrapePlayerList(1);
-    
-    // Verify
-    expect(axios.get).toHaveBeenCalledWith('https://www.vlr.gg/stats/players?page=1', expect.anything());
-    expect(players).toHaveLength(1);
-    expect(players[0]).toHaveProperty('name', 'TestPlayer');
-    expect(players[0]).toHaveProperty('vlr_url', '/player/123');
-  });
-
-  // Test extractPlayerFromStatsPage method
-  test('extractPlayerFromStatsPage should extract player details correctly', () => {
-    // Setup
-    const html = `
-      <div>
-        <div class="mod-player"><a href="/player/123">TestPlayer</a><img src="/img/player.jpg"></div>
-        <div class="mod-team">Test Team</div>
-        <div class="stats-player-country">Test Country</div>
-        <div class="mod-flag mod-US"></div>
-        <div class="stats-center">250</div>
-        <div class="stats-center">1.2</div>
-        <div class="stats-center">150</div>
-        <div class="stats-center">0.8</div>
-        <div class="stats-center">0.6</div>
-        <div class="stats-center">0.15</div>
-        <div class="stats-center">0.12</div>
-        <div class="stats-center">25%</div>
-      </div>
-    `;
-    const $ = cheerio.load(html);
-    const element = $('div').first();
-    
-    // Execute
-    const player = scraperService.extractPlayerFromStatsPage($, element);
-    
-    // Verify
-    expect(player).toHaveProperty('name', 'TestPlayer');
-    expect(player).toHaveProperty('team_name', 'Test Team');
-    expect(player).toHaveProperty('country_name', 'Test Country');
-    expect(player).toHaveProperty('acs', 250);
-    expect(player).toHaveProperty('kd_ratio', 1.2);
-    expect(player).toHaveProperty('adr', 150);
-    expect(player).toHaveProperty('hs_pct', 25);
-  });
-
-  // Test calculateRating method
-  test('calculateRating should compute player rating correctly', () => {
-    // Execute
-    const rating = scraperService.calculateRating(250, 1.2, 150);
-    
-    // Verify - Check that result is a number with reasonable value
-    expect(typeof rating).toBe('number');
-    expect(rating).toBeGreaterThan(0);
-    expect(rating).toBeLessThan(3); // Assuming ratings are typically between 0-2
-  });
-
-  // Test estimatePlayerValue method
-  test('estimatePlayerValue should calculate player value based on stats', () => {
-    // Execute
-    const value = scraperService.estimatePlayerValue(250, 1.2, 150, 0.8, 0.6, 0.15, 0.12, 25);
-    
-    // Verify
-    expect(typeof value).toBe('number');
-    expect(value).toBeGreaterThan(0);
-  });
-
-  // Test scrapePlayerDetail method
-  test('scrapePlayerDetail should extract detailed player information', async () => {
-    // Setup - Mock HTML for a player profile page
-    const mockHtml = `
-      <div class="agent-stats-list">
-        <tr>
-          <th>Agent</th>
-          <th>Time</th>
-          <th>Rounds</th>
-          <th>Win %</th>
-          <th>ACS</th>
-          <th>K:D</th>
-          <th>ADR</th>
-        </tr>
-        <tr>
-          <td>Jett</td>
-          <td>10:30:45</td>
-          <td>50</td>
-          <td>60%</td>
-          <td>250</td>
-          <td>1.3</td>
-          <td>160</td>
-        </tr>
-      </div>
-      <div class="wf-card">
-        <div class="mod-overview">
-          <span class="event-name">VCT Champions</span>
+  describe('scrapePlayerList', () => {
+    it('should parse player list correctly', async () => {
+      // Arrange
+      const mockHtml = `
+        <div class="player-list">
+          <div class="player">
+            <span class="name">Test Player</span>
+            <span class="team">TST</span>
+            <span class="rating">1.2</span>
+          </div>
         </div>
-      </div>
-    `;
-    
-    axios.get.mockResolvedValue({ data: mockHtml });
-    
-    // Execute
-    const playerDetails = await scraperService.scrapePlayerDetail('/player/123');
-    
-    // Verify
-    expect(axios.get).toHaveBeenCalledWith('https://www.vlr.gg/player/123', expect.anything());
-    expect(playerDetails).toHaveProperty('agent_usage');
-    expect(playerDetails.agent_usage).toHaveProperty('Jett');
-    expect(playerDetails).toHaveProperty('division');
-    expect(playerDetails).toHaveProperty('tournament_history');
-    expect(playerDetails.tournament_history).toContain('VCT Champions');
+      `;
+      const mockCheerio = {
+        load: jest.fn().mockReturnValue({
+          root: jest.fn().mockReturnValue({
+            find: jest.fn().mockReturnValue({
+              map: jest.fn().mockReturnValue([{
+                name: 'Test Player',
+                team: 'TST',
+                rating: '1.2'
+              }])
+            })
+          })
+        })
+      };
+      cheerio.load.mockImplementation(mockCheerio.load);
+
+      // Act
+      const players = await scraperService.scrapePlayerList(mockHtml);
+
+      // Assert
+      expect(players).toHaveLength(1);
+      expect(players[0]).toMatchObject({
+        name: 'Test Player',
+        team: 'TST',
+        rating: '1.2'
+      });
+    });
+
+    it('should handle empty player list', async () => {
+      // Arrange
+      const mockHtml = '<div class="player-list"></div>';
+      const mockCheerio = {
+        load: jest.fn().mockReturnValue({
+          root: jest.fn().mockReturnValue({
+            find: jest.fn().mockReturnValue({
+              map: jest.fn().mockReturnValue([])
+            })
+          })
+        })
+      };
+      cheerio.load.mockImplementation(mockCheerio.load);
+
+      // Act
+      const players = await scraperService.scrapePlayerList(mockHtml);
+
+      // Assert
+      expect(players).toHaveLength(0);
+    });
   });
 
-  // Test determinePlaystylesFromAgents method
-  test('determinePlaystylesFromAgents should analyze agent usage correctly', () => {
-    // Setup - Create mock agent usage data
-    const agentUsage = {
-      'Jett': { playCount: 80, winRate: '60%', acs: 250 },
-      'Reyna': { playCount: 20, winRate: '50%', acs: 230 }
-    };
-    
-    // Execute
-    const playstyleInfo = scraperService.determinePlaystylesFromAgents(agentUsage);
-    
-    // Verify
-    expect(playstyleInfo).toHaveProperty('primary_roles');
-    expect(playstyleInfo).toHaveProperty('traits');
-    expect(playstyleInfo).toHaveProperty('role_percentages');
-    expect(playstyleInfo.role_percentages).toHaveProperty('Duelist');
-    // Duelist role should be dominant since both Jett and Reyna are duelists
-    expect(playstyleInfo.role_percentages.Duelist).toBeGreaterThan(80);
+  describe('extractPlayerFromStatsPage', () => {
+    it('should extract player details correctly', async () => {
+      // Arrange
+      const mockElement = {
+        find: jest.fn().mockReturnValue({
+          text: jest.fn().mockReturnValue('Test Player'),
+          attr: jest.fn().mockReturnValue('https://example.com/player')
+        })
+      };
+
+      // Act
+      const player = await scraperService.extractPlayerFromStatsPage(mockElement);
+
+      // Assert
+      expect(player).toMatchObject({
+        name: 'Test Player',
+        profile_url: 'https://example.com/player'
+      });
+    });
   });
 
-  // Test determinePlayerDivision method
-  test('determinePlayerDivision should classify player tier correctly', () => {
-    // Execute with different tournament histories
-    const t1Division = scraperService.determinePlayerDivision(['VCT Masters', 'Some Other Tournament']);
-    const t2Division = scraperService.determinePlayerDivision(['Challengers Ascension', 'Some Local Tournament']);
-    const t3Division = scraperService.determinePlayerDivision(['Game Changers', 'College Tournament']);
-    const unrankedDivision = scraperService.determinePlayerDivision(['Unknown Tournament']);
-    
-    // Verify
-    expect(t1Division).toBe('T1');
-    expect(t2Division).toBe('T2');
-    expect(t3Division).toBe('T3');
-    expect(unrankedDivision).toBe('Unranked');
+  describe('calculateRating', () => {
+    it('should calculate rating correctly', () => {
+      // Arrange
+      const stats = {
+        acs: 250,
+        kd_ratio: 1.5,
+        adr: 150,
+        hs_pct: 25
+      };
+
+      // Act
+      const rating = scraperService.calculateRating(stats);
+
+      // Assert
+      expect(rating).toBeGreaterThan(0);
+      expect(rating).toBeLessThanOrEqual(2.0);
+    });
+
+    it('should handle missing stats', () => {
+      // Arrange
+      const stats = {
+        acs: 250,
+        kd_ratio: null,
+        adr: 150,
+        hs_pct: null
+      };
+
+      // Act
+      const rating = scraperService.calculateRating(stats);
+
+      // Assert
+      expect(rating).toBeGreaterThan(0);
+      expect(rating).toBeLessThanOrEqual(2.0);
+    });
   });
 
-  test('determinePlayerDivision should return the correct division', () => {
-    const playerStats = { rating: 1.2 }; // Adjust mock data to match the logic
-    const division = scraperService.determinePlayerDivision(playerStats);
-    expect(division).toBe('T2'); // Ensure the expected value matches the logic
+  describe('estimatePlayerValue', () => {
+    it('should estimate player value correctly', () => {
+      // Arrange
+      const player = {
+        rating: 1.2,
+        division: 'T2',
+        is_free_agent: true
+      };
+
+      // Act
+      const value = scraperService.estimatePlayerValue(player);
+
+      // Assert
+      expect(value).toBeGreaterThan(0);
+      expect(value).toBeLessThanOrEqual(10000);
+    });
+
+    it('should handle different divisions', () => {
+      // Arrange
+      const t1Player = { rating: 1.2, division: 'T1', is_free_agent: true };
+      const t2Player = { rating: 1.2, division: 'T2', is_free_agent: true };
+
+      // Act
+      const t1Value = scraperService.estimatePlayerValue(t1Player);
+      const t2Value = scraperService.estimatePlayerValue(t2Player);
+
+      // Assert
+      expect(t1Value).toBeGreaterThan(t2Value);
+    });
   });
 
-  // Test scrapeAndSavePlayerDetails method
-  test('scrapeAndSavePlayerDetails should save player details to database', async () => {
-    // Setup
-    const mockPlayerDetails = {
-      agent_usage: { 'Jett': { playCount: 50 } },
-      playstyle: { primary_roles: ['Duelist (80%)'] },
-      division: 'T1',
-      tournament_history: ['VCT Champions']
-    };
-    
-    // Mock the scrapePlayerDetail method to return our test data
-    jest.spyOn(scraperService, 'scrapePlayerDetail').mockResolvedValue(mockPlayerDetails);
-    
-    // Execute
-    const result = await scraperService.scrapeAndSavePlayerDetails('test-id', '/player/123');
-    
-    // Verify
-    expect(scraperService.scrapePlayerDetail).toHaveBeenCalledWith('/player/123');
-    expect(db.Player.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agent_usage: expect.any(String),
-        playstyle: expect.any(String),
-        division: 'T1',
-        tournament_history: expect.any(String)
-      }),
-      expect.objectContaining({
-        where: { id: 'test-id' }
-      })
-    );
-    expect(result).toBe(true);
+  describe('scrapePlayerDetail', () => {
+    it('should scrape player details correctly', async () => {
+      // Arrange
+      const mockHtml = `
+        <div class="player-detail">
+          <div class="stats">
+            <span class="acs">250</span>
+            <span class="kd">1.5</span>
+            <span class="adr">150</span>
+          </div>
+          <div class="agent-usage">
+            <span class="agent">Jett</span>
+            <span class="usage">30%</span>
+          </div>
+        </div>
+      `;
+      const mockCheerio = {
+        load: jest.fn().mockReturnValue({
+          root: jest.fn().mockReturnValue({
+            find: jest.fn().mockReturnValue({
+              text: jest.fn().mockReturnValue('250'),
+              map: jest.fn().mockReturnValue([{
+                agent: 'Jett',
+                usage: '30%'
+              }])
+            })
+          })
+        })
+      };
+      cheerio.load.mockImplementation(mockCheerio.load);
+
+      // Act
+      const details = await scraperService.scrapePlayerDetail(mockHtml);
+
+      // Assert
+      expect(details).toMatchObject({
+        acs: 250,
+        kd_ratio: 1.5,
+        adr: 150,
+        agent_usage: expect.any(Object)
+      });
+    });
   });
 
-  // Test scrapeAllPlayers method - basic functionality
-  test('scrapeAllPlayers should scrape player list and save to database', async () => {
-    // Setup
-    const mockPlayer = { 
-      id: 'player-id', 
-      name: 'TestPlayer', 
-      vlr_url: '/player/123'
-    };
-    
-    // Mock scrapePlayerList to return our test player
-    jest.spyOn(scraperService, 'scrapePlayerList').mockResolvedValue([mockPlayer]);
-    
-    // Mock scrapeAndSavePlayerDetails to succeed
-    jest.spyOn(scraperService, 'scrapeAndSavePlayerDetails').mockResolvedValue(true);
-    
-    // Execute - scrape 1 page with detailed info
-    const result = await scraperService.scrapeAllPlayers(1, true);
-    
-    // Verify
-    expect(scraperService.scrapePlayerList).toHaveBeenCalledWith(1);
-    expect(db.Player.bulkCreate).toHaveBeenCalled();
-    expect(scraperService.scrapeAndSavePlayerDetails).toHaveBeenCalledWith(
-      mockPlayer.id, 
-      mockPlayer.vlr_url
-    );
-    expect(result).toBe(1); // Should return count of players scraped
+  describe('determinePlaystylesFromAgents', () => {
+    it('should determine playstyles correctly', () => {
+      // Arrange
+      const agentUsage = {
+        'Jett': 40,
+        'Sova': 30,
+        'Omen': 30
+      };
+
+      // Act
+      const playstyles = scraperService.determinePlaystylesFromAgents(agentUsage);
+
+      // Assert
+      expect(playstyles).toHaveProperty('primary_roles');
+      expect(playstyles).toHaveProperty('role_percentages');
+      expect(playstyles.primary_roles).toContain('Duelist');
+    });
+  });
+
+  describe('determinePlayerDivision', () => {
+    it('should determine division based on tournament history', () => {
+      // Arrange
+      const tournamentHistory = [
+        { tournament: 'VCT', placement: 1 },
+        { tournament: 'VRL', placement: 2 }
+      ];
+
+      // Act
+      const division = scraperService.determinePlayerDivision(tournamentHistory);
+
+      // Assert
+      expect(division).toBe('T1');
+    });
+
+    it('should handle players with no tournament history', () => {
+      // Arrange
+      const tournamentHistory = [];
+
+      // Act
+      const division = scraperService.determinePlayerDivision(tournamentHistory);
+
+      // Assert
+      expect(division).toBe('Unranked');
+    });
+  });
+
+  describe('scrapeAndSavePlayerDetails', () => {
+    it('should scrape and save player details', async () => {
+      // Arrange
+      const player = {
+        name: 'Test Player',
+        profile_url: 'https://example.com/player'
+      };
+      const mockHtml = '<div class="player-detail">Test data</div>';
+      const mockCheerio = {
+        load: jest.fn().mockReturnValue({
+          root: jest.fn().mockReturnValue({
+            find: jest.fn().mockReturnValue({
+              text: jest.fn().mockReturnValue('250'),
+              map: jest.fn().mockReturnValue([])
+            })
+          })
+        })
+      };
+      cheerio.load.mockImplementation(mockCheerio.load);
+
+      // Act
+      const result = await scraperService.scrapeAndSavePlayerDetails(player, mockHtml);
+
+      // Assert
+      expect(result).toMatchObject({
+        name: 'Test Player',
+        acs: expect.any(Number),
+        rating: expect.any(Number)
+      });
+    });
+  });
+
+  describe('scrapeAllPlayers', () => {
+    it('should scrape all players from a list', async () => {
+      // Arrange
+      const players = [
+        { name: 'Player 1', profile_url: 'https://example.com/1' },
+        { name: 'Player 2', profile_url: 'https://example.com/2' }
+      ];
+      const mockHtml = '<div class="player-detail">Test data</div>';
+      const mockCheerio = {
+        load: jest.fn().mockReturnValue({
+          root: jest.fn().mockReturnValue({
+            find: jest.fn().mockReturnValue({
+              text: jest.fn().mockReturnValue('250'),
+              map: jest.fn().mockReturnValue([])
+            })
+          })
+        })
+      };
+      cheerio.load.mockImplementation(mockCheerio.load);
+
+      // Act
+      const results = await scraperService.scrapeAllPlayers(players, mockHtml);
+
+      // Assert
+      expect(results).toHaveLength(2);
+      expect(results[0]).toMatchObject({
+        name: expect.any(String),
+        acs: expect.any(Number),
+        rating: expect.any(Number)
+      });
+    });
   });
 });

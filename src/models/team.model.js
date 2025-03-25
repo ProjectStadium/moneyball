@@ -9,29 +9,41 @@ module.exports = (sequelize) => {
       defaultValue: DataTypes.UUIDV4,
       primaryKey: true
     },
-    team_abbreviation: {
+    name: {
       type: DataTypes.STRING,
-      unique: true,
-      allowNull: false
+      allowNull: false,
+      unique: true
     },
-    full_team_name: DataTypes.STRING,
-    tag: DataTypes.STRING,
-    region: DataTypes.STRING,
+    abbreviation: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      unique: true
+    },
+    logo_url: DataTypes.STRING,
     country: DataTypes.STRING,
-    country_code: DataTypes.STRING,
-    rank: DataTypes.INTEGER,
-    score: DataTypes.FLOAT,
-    record: DataTypes.STRING,
-    earnings: DataTypes.DECIMAL(10, 2),
-    founded_year: DataTypes.INTEGER,
-    game: DataTypes.STRING,
-    logo_url: DataTypes.STRING
+    region: DataTypes.STRING,
+    metadata: {
+      type: DataTypes.TEXT,
+      get() {
+        const value = this.getDataValue('metadata');
+        return value ? JSON.parse(value) : {};
+      },
+      set(value) {
+        this.setDataValue('metadata', JSON.stringify(value));
+      }
+    },
+    last_updated: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW
+    }
   }, {
-    indexes: [
-      { fields: ['team_abbreviation'] },
-      { fields: ['region'] },
-      { fields: ['country'] }
-    ]
+    tableName: 'teams',
+    timestamps: true,
+    hooks: {
+      beforeUpdate: (team) => {
+        team.last_updated = new Date();
+      }
+    }
   });
 
   return Team;

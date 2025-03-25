@@ -146,7 +146,12 @@ exports.getTopTeams = async (req, res) => {
     
     const teams = await Team.findAll({
       order: [['rank', 'ASC']],
-      limit: parseInt(limit)
+      limit: parseInt(limit),
+      attributes: [
+        'id', 'team_abbreviation', 'full_team_name', 'tag', 'region',
+        'country', 'country_code', 'rank', 'score', 'record',
+        'earnings', 'founded_year', 'game', 'logo_url'
+      ]
     });
     
     res.json(teams);
@@ -154,6 +159,139 @@ exports.getTopTeams = async (req, res) => {
     console.error('Error retrieving top teams:', error);
     res.status(500).send({
       message: error.message || 'An error occurred while retrieving top teams.'
+    });
+  }
+};
+
+// Create a new team
+exports.create = async (req, res) => {
+  try {
+    const team = await Team.create(req.body);
+    res.status(201).json(team);
+  } catch (error) {
+    console.error('Error creating team:', error);
+    res.status(400).json({
+      message: error.message || 'An error occurred while creating the team.'
+    });
+  }
+};
+
+// Get a single team by id
+exports.findOne = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const team = await Team.findByPk(id, {
+      include: [{
+        model: Player,
+        attributes: ['id', 'name', 'rating', 'acs', 'kd_ratio', 'is_free_agent']
+      }]
+    });
+    
+    if (!team) {
+      return res.status(404).json({
+        message: `Team with id ${id} not found.`
+      });
+    }
+    
+    res.json(team);
+  } catch (error) {
+    console.error('Error retrieving team:', error);
+    res.status(500).json({
+      message: error.message || 'An error occurred while retrieving the team.'
+    });
+  }
+};
+
+// Update a team
+exports.update = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [updated] = await Team.update(req.body, {
+      where: { id }
+    });
+    
+    if (updated) {
+      const team = await Team.findByPk(id);
+      res.json(team);
+    } else {
+      res.status(404).json({
+        message: `Team with id ${id} not found.`
+      });
+    }
+  } catch (error) {
+    console.error('Error updating team:', error);
+    res.status(400).json({
+      message: error.message || 'An error occurred while updating the team.'
+    });
+  }
+};
+
+// Delete a team
+exports.delete = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await Team.destroy({
+      where: { id }
+    });
+    
+    if (deleted) {
+      res.json({
+        message: `Team with id ${id} was deleted successfully.`
+      });
+    } else {
+      res.status(404).json({
+        message: `Team with id ${id} not found.`
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting team:', error);
+    res.status(500).json({
+      message: error.message || 'An error occurred while deleting the team.'
+    });
+  }
+};
+
+// Get team statistics
+exports.getStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const team = await Team.findByPk(id, {
+      include: [{
+        model: Player,
+        attributes: ['id', 'name', 'rating', 'acs', 'kd_ratio', 'adr', 'kpr', 'apr']
+      }]
+    });
+    
+    if (!team) {
+      return res.status(404).json({
+        message: `Team with id ${id} not found.`
+      });
+    }
+    
+    // Calculate team statistics
+    const players = team.Players;
+    const stats = {
+      roster_size: players.length,
+      average_rating: players.reduce((acc, p) => acc + (p.rating || 0), 0) / players.length,
+      average_acs: players.reduce((acc, p) => acc + (p.acs || 0), 0) / players.length,
+      average_kd: players.reduce((acc, p) => acc + (p.kd_ratio || 0), 0) / players.length,
+      average_adr: players.reduce((acc, p) => acc + (p.adr || 0), 0) / players.length,
+      average_kpr: players.reduce((acc, p) => acc + (p.kpr || 0), 0) / players.length,
+      average_apr: players.reduce((acc, p) => acc + (p.apr || 0), 0) / players.length,
+      player_roles: players.reduce((acc, p) => {
+        const roles = p.playstyle?.role_percentages || {};
+        Object.entries(roles).forEach(([role, percentage]) => {
+          acc[role] = (acc[role] || 0) + percentage;
+        });
+        return acc;
+      }, {})
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    console.error('Error retrieving team stats:', error);
+    res.status(500).json({
+      message: error.message || 'An error occurred while retrieving team stats.'
     });
   }
 };

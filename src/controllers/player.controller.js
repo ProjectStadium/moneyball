@@ -48,7 +48,7 @@ exports.findAll = async (req, res) => {
     });
   } catch (error) {
     console.error('Error retrieving players:', error);
-    res.status(500).send({
+    res.status(500).json({
       message: error.message || 'An error occurred while retrieving players.'
     });
   }
@@ -62,7 +62,7 @@ exports.findOne = async (req, res) => {
     const player = await Player.findByPk(id);
     
     if (!player) {
-      return res.status(404).send({
+      return res.status(404).json({
         message: `Player with id ${id} not found.`
       });
     }
@@ -70,7 +70,7 @@ exports.findOne = async (req, res) => {
     res.json(player);
   } catch (error) {
     console.error('Error retrieving player:', error);
-    res.status(500).send({
+    res.status(500).json({
       message: `Error retrieving player with id ${req.params.id}`
     });
   }
@@ -88,7 +88,7 @@ exports.getTopPlayers = async (req, res) => {
     // Validate the stat parameter
     const allowedStats = ['rating', 'acs', 'kd_ratio', 'adr', 'kpr', 'apr', 'fk_pr', 'hs_pct'];
     if (!allowedStats.includes(stat)) {
-      return res.status(400).send({
+      return res.status(400).json({
         message: `Invalid stat parameter. Allowed values: ${allowedStats.join(', ')}`
       });
     }
@@ -112,7 +112,7 @@ exports.getTopPlayers = async (req, res) => {
     res.json(players);
   } catch (error) {
     console.error('Error retrieving top players:', error);
-    res.status(500).send({
+    res.status(500).json({
       message: error.message || 'An error occurred while retrieving top players.'
     });
   }
@@ -131,7 +131,7 @@ exports.getPlayersByTeam = async (req, res) => {
     res.json(players);
   } catch (error) {
     console.error('Error retrieving team players:', error);
-    res.status(500).send({
+    res.status(500).json({
       message: error.message || 'An error occurred while retrieving team players.'
     });
   }
@@ -164,8 +164,113 @@ exports.getFreeAgents = async (req, res) => {
     });
   } catch (error) {
     console.error('Error retrieving free agents:', error);
-    res.status(500).send({
+    res.status(500).json({
       message: error.message || 'An error occurred while retrieving free agents.'
+    });
+  }
+};
+
+// Create a new player
+exports.create = async (req, res) => {
+  try {
+    const player = await Player.create(req.body);
+    res.status(201).json(player);
+  } catch (error) {
+    console.error('Error creating player:', error);
+    res.status(400).json({
+      message: error.message || 'An error occurred while creating the player.'
+    });
+  }
+};
+
+// Update a player
+exports.update = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [updated] = await Player.update(req.body, {
+      where: { id }
+    });
+    
+    if (updated) {
+      const player = await Player.findByPk(id);
+      res.json(player);
+    } else {
+      res.status(404).json({
+        message: `Player with id ${id} not found.`
+      });
+    }
+  } catch (error) {
+    console.error('Error updating player:', error);
+    res.status(400).json({
+      message: error.message || 'An error occurred while updating the player.'
+    });
+  }
+};
+
+// Delete a player
+exports.delete = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await Player.destroy({
+      where: { id }
+    });
+    
+    if (deleted) {
+      res.json({
+        message: `Player with id ${id} was deleted successfully.`
+      });
+    } else {
+      res.status(404).json({
+        message: `Player with id ${id} not found.`
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting player:', error);
+    res.status(500).json({
+      message: error.message || 'An error occurred while deleting the player.'
+    });
+  }
+};
+
+// Get player statistics
+exports.getStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const player = await Player.findByPk(id);
+    
+    if (!player) {
+      return res.status(404).json({
+        message: `Player with id ${id} not found.`
+      });
+    }
+    
+    const stats = {
+      performance: {
+        acs: player.acs,
+        kd_ratio: player.kd_ratio,
+        adr: player.adr,
+        kpr: player.kpr,
+        apr: player.apr,
+        fk_pr: player.fk_pr,
+        fd_pr: player.fd_pr,
+        hs_pct: player.hs_pct,
+        rating: player.rating
+      },
+      agent_usage: player.agent_usage,
+      playstyle: player.playstyle,
+      earnings: {
+        total: player.total_earnings,
+        by_year: player.earnings_by_year,
+        tournament_earnings: player.tournament_earnings,
+        last_updated: player.earnings_last_updated
+      }
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    console.error('Error retrieving player stats:', error);
+    res.status(500).json({
+      message: error.message || 'An error occurred while retrieving player stats.'
     });
   }
 };

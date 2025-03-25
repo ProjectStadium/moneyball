@@ -22,6 +22,7 @@ app.get('/', (req, res) => {
 // Import routes
 app.use('/api/players', require('./routes/player.routes'));
 app.use('/api/teams', require('./routes/team.routes'));
+app.use('/api/tournaments', require('./routes/tournament.routes'));
 app.use('/api/analysis', require('./routes/analysis.routes'));
 
 // Admin routes (should be protected in production)

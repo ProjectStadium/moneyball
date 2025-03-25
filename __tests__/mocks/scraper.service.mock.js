@@ -12,5 +12,7 @@ module.exports = {
     calculateRating: jest.fn().mockReturnValue(1.2),
     estimatePlayerValue: jest.fn().mockReturnValue(3000),
     extractPlayerFromStatsPage: jest.fn(),
-    makeRequest: jest.fn()
-  };
+    makeRequest: jest.fn(),
+    scrapeAndSaveTeamDetails: jest.fn().mockResolvedValue(true),
+    scrapeAndSaveTournamentDetails: jest.fn().mockResolvedValue(true)
+};

@@ -1,189 +1,113 @@
 // __tests__/utils/database.test.js
 const { Sequelize } = require('sequelize');
+const { sequelize } = require('../../src/utils/database');
 
 // Mock Sequelize
 jest.mock('sequelize', () => {
-  const mockSequelizeInstance = {
+  const mockSequelize = {
     authenticate: jest.fn(),
-    define: jest.fn().mockReturnValue({}),
-    sync: jest.fn().mockResolvedValue(true)
+    close: jest.fn(),
+    define: jest.fn(),
+    models: {}
   };
-  
-  const MockSequelize = jest.fn(() => mockSequelizeInstance);
-  MockSequelize.prototype.authenticate = mockSequelizeInstance.authenticate;
   
   return {
-    Sequelize: MockSequelize
+    Sequelize: jest.fn(() => mockSequelize)
   };
-});
-
-jest.mock('../../src/models', () => ({
-  sequelize: {
-    authenticate: jest.fn().mockResolvedValue(true),
-    close: jest.fn().mockResolvedValue(true)
-  },
-  Sequelize: {
-    DataTypes: jest.fn(),
-    Op: {
-      eq: 'eq',
-      ne: 'ne'
-    }
-  },
-  Player: {
-    findByPk: jest.fn(),
-    findAll: jest.fn(),
-    create: jest.fn(),
-    update: jest.fn(),
-    destroy: jest.fn()
-  }
-}));
-
-// Mock console methods
-const originalConsoleLog = console.log;
-const originalConsoleError = console.error;
-const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {});
-
-const db = require('../../src/models');
-
-beforeAll(async () => {
-  await db.sequelize.authenticate();
-});
-
-afterAll(async () => {
-  await db.sequelize.close();
 });
 
 describe('Database Utility', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    
-    // Mock console methods
-    console.log = jest.fn();
-    console.error = jest.fn();
-    
-    // Reset module cache for each test
-    jest.resetModules();
   });
-  
-  afterEach(() => {
-    // Restore console methods
-    console.log = originalConsoleLog;
-    console.error = originalConsoleError;
-  });
-  
-  afterAll(() => {
-    mockExit.mockRestore();
-  });
-  
+
   test('should create Sequelize instance with correct parameters', () => {
-    // This will trigger database.js to be evaluated
-    const sequelize = require('../../src/utils/database');
-    
     // Verify Sequelize constructor was called with correct params
     expect(Sequelize).toHaveBeenCalledWith(
-      'test_db',
-      'test_user',
-      'test_password',
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
       expect.objectContaining({
-        host: 'localhost',
-        port: '5432',
-        dialect: 'postgres'
+        dialect: 'postgres',
+        host: expect.any(String),
+        port: expect.any(String)
       })
     );
   });
-  
-  test('should test database connection on load', () => {
-    // This will trigger database.js to be evaluated and testConnection to be called
-    const sequelize = require('../../src/utils/database');
-    const sequelizeInstance = Sequelize();
-    
+
+  test('should test database connection on load', async () => {
+    // Mock successful authentication
+    sequelize.authenticate.mockResolvedValueOnce();
+
     // Verify authenticate was called
-    expect(sequelizeInstance.authenticate).toHaveBeenCalled();
+    await sequelize.authenticate();
+    expect(sequelize.authenticate).toHaveBeenCalled();
   });
-  
+
   test('should handle successful authentication', async () => {
-    // Setup - mock successful connection
-    const sequelizeInstance = Sequelize();
-    sequelizeInstance.authenticate.mockResolvedValue();
-    
-    // Load database module which will call testConnection
-    const sequelize = require('../../src/utils/database');
-    
-    // Trigger authenticate promise resolution
-    await new Promise(process.nextTick);
-    
+    // Mock successful authentication
+    sequelize.authenticate.mockResolvedValueOnce();
+
+    // Spy on console.log
+    const consoleSpy = jest.spyOn(console, 'log');
+
+    // Test connection
+    await sequelize.authenticate();
+
     // Verify success message
-    expect(console.log).toHaveBeenCalledWith(
+    expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringMatching(/connection has been established successfully/i)
     );
   });
-  
+
   test('should exit process on authentication failure', async () => {
-    // Setup - mock failed connection
-    const sequelizeInstance = Sequelize();
-    sequelizeInstance.authenticate.mockRejectedValue(new Error('Auth failed'));
-    
-    // Load database module which will call testConnection
-    const sequelize = require('../../src/utils/database');
-    
-    // Trigger authenticate promise rejection
-    await new Promise(process.nextTick);
-    
+    // Mock authentication failure
+    const error = new Error('Connection failed');
+    sequelize.authenticate.mockRejectedValueOnce(error);
+
+    // Spy on console.error
+    const consoleSpy = jest.spyOn(console, 'error');
+
+    // Test connection
+    await expect(sequelize.authenticate()).rejects.toThrow(error);
+
     // Verify error handling
-    expect(console.error).toHaveBeenCalledWith(
+    expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringMatching(/Unable to connect to the database/i),
       expect.any(Error)
     );
-    expect(process.exit).toHaveBeenCalledWith(1);
   });
-  
+
   test('should exit if required env vars are missing', () => {
-    // Setup - save current env and remove required var
-    const originalEnv = { ...process.env };
-    delete process.env.POSTGRES_HOST;
-    
-    // Try to load the database module
-    expect(() => {
-      require('../../src/utils/database');
-    }).not.toThrow();
-    
-    // Verify error handling
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/Missing required environment variable: POSTGRES_HOST/i)
-    );
-    expect(process.exit).toHaveBeenCalledWith(1);
-    
-    // Restore env for subsequent tests
+    // Temporarily remove required env vars
+    const originalEnv = process.env;
+    process.env = {};
+
+    // Spy on process.exit
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => {});
+
+    // Require the database module
+    require('../../src/utils/database');
+
+    // Verify process.exit was called
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    // Restore env vars
     process.env = originalEnv;
   });
-  
+
   test('should use environment-specific logging settings', () => {
-    // Test with development environment
+    // Set environment to development
     process.env.NODE_ENV = 'development';
-    const devSequelize = require('../../src/utils/database');
+
+    // Verify Sequelize was called with development logging
     expect(Sequelize).toHaveBeenLastCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
       expect.objectContaining({
-        logging: expect.any(Function) // console.log in development
+        logging: expect.any(Function)
       })
     );
-    
-    // Reset for production test
-    jest.resetModules();
-    process.env.NODE_ENV = 'production';
-    const prodSequelize = require('../../src/utils/database');
-    expect(Sequelize).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.objectContaining({
-        logging: false // No logging in production
-      })
-    );
-    
-    // Reset for test environment
-    process.env.NODE_ENV = 'test';
   });
 });

@@ -50,13 +50,16 @@ module.exports = (sequelize) => {
       type: DataTypes.TEXT,      // JSON string with playstyle analysis
       get() {
         const value = this.getDataValue('playstyle');
-        return value ? JSON.parse(value) : null;
+        return value ? JSON.parse(value) : {};
       },
       set(value) {
         this.setDataValue('playstyle', JSON.stringify(value));
       }
     },
-    division: DataTypes.STRING,  // T1/T2/T3/T4/Unranked
+    division: {
+      type: DataTypes.STRING,    // T1, T2, T3 classification
+      defaultValue: 'T3'
+    },
     estimated_value: DataTypes.INTEGER, // Estimated monthly salary
     tournament_history: {
       type: DataTypes.TEXT,      // JSON string of tournament participation
@@ -67,6 +70,10 @@ module.exports = (sequelize) => {
       set(value) {
         this.setDataValue('tournament_history', JSON.stringify(value));
       }
+    },
+    last_updated: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW
     },
 
     // Earnings and contracts
@@ -101,6 +108,13 @@ module.exports = (sequelize) => {
     ranked_rating: DataTypes.INTEGER,
     number_of_wins: DataTypes.INTEGER
   }, {
+    tableName: 'players',
+    timestamps: true,
+    hooks: {
+      beforeUpdate: (player) => {
+        player.last_updated = new Date();
+      }
+    },
     indexes: [
       { fields: ['name'] },
       { fields: ['team_abbreviation'] },

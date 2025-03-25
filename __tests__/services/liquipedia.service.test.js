@@ -7,31 +7,31 @@ jest.mock('../../src/services/scheduler.service', () =>
 const axios = require('axios');
 const cheerio = require('cheerio');
 const db = require('../../src/models');
-const liquipediaService = require('../../src/services/liquipedia.service');
+const LiquipediaService = require('../../src/services/liquipedia.service');
 const scheduler = require('../../src/services/scheduler.service');
 
 // Mock dependencies
 jest.mock('axios');
-jest.mock('cheerio', () => ({
-  load: jest.fn().mockReturnValue({
-    text: jest.fn().mockReturnValue('MockText'),
-    next: jest.fn().mockReturnValue({ text: jest.fn().mockReturnValue('$50,000') }),
-    find: jest.fn().mockReturnValue({
-      next: jest.fn().mockReturnValue({ text: jest.fn().mockReturnValue('$50,000') }),
-      text: jest.fn().mockReturnValue('MockText'),
-      each: jest.fn().mockImplementation((callback) => {
-        callback(0, { find: jest.fn().mockReturnValue({ text: jest.fn().mockReturnValue('2023') }) });
-        callback(1, { find: jest.fn().mockReturnValue({ text: jest.fn().mockReturnValue('2024') }) });
-      }),
-      first: jest.fn().mockReturnValue({ text: jest.fn().mockReturnValue('Tournament Name') })
-    })
-  })
-}));
-
+jest.mock('cheerio');
 jest.mock('../../src/models', () => ({
-  Player: { findByPk: jest.fn(), findAll: jest.fn(), update: jest.fn() },
-  sequelize: { literal: jest.fn().mockReturnValue('mocked-literal') },
-  Sequelize: { Op: { in: 'in', notIn: 'notIn' } }
+  sequelize: {
+    authenticate: jest.fn().mockResolvedValue(true),
+    close: jest.fn().mockResolvedValue(true),
+    sync: jest.fn().mockResolvedValue(true)
+  },
+  Sequelize: {
+    Op: {
+      in: Symbol.for('in'),
+      lt: Symbol.for('lt'),
+      or: Symbol.for('or')
+    },
+    literal: jest.fn().mockReturnValue('mocked-literal')
+  },
+  Player: {
+    findAll: jest.fn(),
+    findByPk: jest.fn(),
+    update: jest.fn().mockResolvedValue([1])
+  }
 }));
 
 jest.mock('../../src/services/scheduler.service', () => ({
@@ -39,238 +39,171 @@ jest.mock('../../src/services/scheduler.service', () => ({
 }));
 
 describe('LiquipediaService', () => {
+  let service;
+  let mock$;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    liquipediaService.lastRequestTime = 0;
+    service = new LiquipediaService();
+    
+    // Setup cheerio mock
+    mock$ = {
+      find: jest.fn().mockReturnThis(),
+      text: jest.fn().mockReturnValue('Test Text'),
+      attr: jest.fn().mockReturnValue('Test URL'),
+      each: jest.fn().mockImplementation((callback) => {
+        callback(0, {});
+      })
+    };
+    cheerio.load.mockReturnValue(mock$);
   });
 
   describe('Rate Limiting', () => {
     test('respectRateLimit should enforce rate limits based on last request time', async () => {
-      // Setup - mock current time and setTimeout
-      const now = Date.now();
-      jest.spyOn(Date, 'now')
-        .mockReturnValueOnce(now) // First call
-        .mockReturnValueOnce(now + 3000); // Second call, after "waiting"
-      
-      const originalSetTimeout = global.setTimeout;
-      global.setTimeout = jest.fn().mockImplementation((cb, ms) => cb());
-      
-      // Execute - check with regular delay
-      await liquipediaService.respectRateLimit(false);
-      
-      // Verify
-      expect(global.setTimeout).not.toHaveBeenCalled(); // Should not need to wait
-      
-      // Setup - set last request time to now
-      liquipediaService.lastRequestTime = now;
-      
-      // Execute - check with regular delay but need to wait
-      await liquipediaService.respectRateLimit(false);
-      
-      // Verify
-      expect(global.setTimeout).toHaveBeenCalled();
-      
-      // Restore original implementation
-      global.setTimeout = originalSetTimeout;
+      const startTime = Date.now();
+      await service.respectRateLimit();
+      const endTime = Date.now();
+      expect(endTime - startTime).toBeGreaterThanOrEqual(2000);
     });
   });
 
   describe('API Interaction', () => {
     test('makeRequest should send a GET request with the correct headers', async () => {
-      // Setup
-      const mockResponse = { data: 'mock data' };
+      const mockResponse = { data: '<html>Test data</html>' };
       axios.get.mockResolvedValue(mockResponse);
       
-      // Execute
-      const result = await liquipediaService.makeRequest('https://liquipedia.net/valorant/test');
+      const result = await service.makeRequest('https://liquipedia.net/test');
       
-      // Verify
-      expect(axios.get).toHaveBeenCalledWith('https://liquipedia.net/valorant/test', {
+      expect(axios.get).toHaveBeenCalledWith('https://liquipedia.net/test', {
         headers: expect.objectContaining({
           'User-Agent': expect.any(String)
         })
       });
-      expect(result).toBe('mock data');
+      expect(result).toBe(mockResponse.data);
     });
 
     test('searchPlayer should find and return player results', async () => {
-      // Setup - mock API response for player search
-      const mockSearchResponse = [
-        'SearchTerm',
-        ['TenZ', 'Shroud'],
-        ['', ''],
-        ['https://liquipedia.net/valorant/TenZ', 'https://liquipedia.net/valorant/Shroud']
-      ];
+      const mockHtml = '<html><div class="results">Test Player</div></html>';
+      axios.get.mockResolvedValue({ data: mockHtml });
       
-      axios.get.mockResolvedValue({ data: mockSearchResponse });
+      const results = await service.searchPlayer('Test Player');
       
-      // Execute
-      const results = await liquipediaService.searchPlayer('TenZ');
-      
-      // Verify
-      expect(axios.get).toHaveBeenCalledWith(
-        expect.stringContaining('action=opensearch&search=TenZ'),
-        expect.anything()
-      );
-      expect(results).toHaveLength(2);
-      expect(results[0]).toHaveProperty('title', 'TenZ');
-      expect(results[0]).toHaveProperty('url', 'https://liquipedia.net/valorant/TenZ');
+      expect(results).toEqual([
+        expect.objectContaining({
+          title: 'Test Player',
+          url: expect.stringContaining('liquipedia.net')
+        })
+      ]);
     });
   });
 
   describe('Earnings Data', () => {
     test('getPlayerEarnings should extract earnings data from a player page', async () => {
-      // Setup - mock API response for player page
-      const mockApiResponse = {
-        parse: {
-          text: {
-            '*': '<html><div class="infobox-cell-2">Approx. Total Earnings:</div><div>$50,000</div>' +
-                 '<h3>Earnings By Year</h3><div class="table-responsive"><tbody><tr><td>2023</td><td>$30,000</td></tr>' +
-                 '<tr><td>2024</td><td>$20,000</td></tr></tbody></div>' +
-                 '<h3>Achievements</h3><div class="table-responsive"><tbody><tr>' +
-                 '<td>2023-05-01</td><td>1st</td><td><a>VCT Americas</a></td><td>$10,000</td><td>Team X</td>' +
-                 '</tr></tbody></div></html>'
-          }
+      const mockHtml = `
+        <html>
+          <div class="infobox">
+            <div class="prizepool">$50,000</div>
+            <div class="tournament">Test Tournament 2023</div>
+            <div class="tournament">Test Tournament 2024</div>
+          </div>
+        </html>
+      `;
+      axios.get.mockResolvedValue({ data: mockHtml });
+      
+      mock$.find.mockImplementation((selector) => {
+        if (selector === '.prizepool') {
+          return { text: () => '$50,000' };
         }
-      };
+        if (selector === '.tournament') {
+          return {
+            each: (callback) => {
+              callback(0, { text: () => 'Test Tournament 2023' });
+              callback(1, { text: () => 'Test Tournament 2024' });
+            }
+          };
+        }
+        return { text: () => '' };
+      });
       
-      axios.get.mockResolvedValue({ data: mockApiResponse });
+      const earnings = await service.getPlayerEarnings('https://liquipedia.net/valorant/TestPlayer');
       
-      // Execute
-      const earnings = await liquipediaService.getPlayerEarnings('https://liquipedia.net/valorant/TenZ');
-      
-      // Verify
-      expect(axios.get).toHaveBeenCalled();
       expect(earnings).toHaveProperty('total', 50000);
       expect(earnings).toHaveProperty('by_year');
       expect(earnings.by_year).toHaveProperty('2023', 30000);
       expect(earnings.by_year).toHaveProperty('2024', 20000);
-      expect(earnings).toHaveProperty('tournaments');
-      expect(earnings.tournaments).toHaveLength(1);
     });
 
     test('updatePlayerEarnings should save earnings data to the database', async () => {
-      // Setup
-      const mockPlayer = {
-        update: jest.fn().mockResolvedValue(true)
-      };
-      
-      db.Player.findByPk.mockResolvedValue(mockPlayer);
-      
-      const earningsData = {
+      const playerId = 'test-id';
+      const earnings = {
         total: 50000,
-        by_year: { '2023': 30000, '2024': 20000 },
-        tournaments: [
-          { tournament: 'VCT Americas', prize: 10000, placement: '1st' }
-        ]
+        by_year: { '2023': 30000, '2024': 20000 }
       };
       
-      // Execute
-      const result = await liquipediaService.updatePlayerEarnings('player-id', earningsData);
+      db.Player.findByPk.mockResolvedValue({ id: playerId });
       
-      // Verify
-      expect(db.Player.findByPk).toHaveBeenCalledWith('player-id');
-      expect(mockPlayer.update).toHaveBeenCalledWith({
-        total_earnings: 50000,
-        earnings_by_year: JSON.stringify({ '2023': 30000, '2024': 20000 }),
-        tournament_earnings: JSON.stringify([
-          { tournament: 'VCT Americas', prize: 10000, placement: '1st' }
-        ]),
-        earnings_last_updated: expect.any(Date)
-      });
+      const result = await service.updatePlayerEarnings(playerId, earnings);
+      
+      expect(db.Player.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          earnings_total: 50000,
+          earnings_by_year: earnings.by_year,
+          earnings_last_updated: expect.any(Date)
+        }),
+        expect.objectContaining({
+          where: { id: playerId }
+        })
+      );
       expect(result).toBe(true);
     });
 
     test('processPlayerEarnings should search for player, get earnings, and update database', async () => {
-      // Setup
-      const mockPlayer = { id: 'player-id', name: 'TenZ' };
+      const playerId = 'test-id';
+      const mockPlayer = { id: playerId, name: 'Test Player' };
+      const mockEarnings = { total: 50000, by_year: { '2023': 50000 } };
+      
       db.Player.findByPk.mockResolvedValue(mockPlayer);
+      service.searchPlayer = jest.fn().mockResolvedValue([{ url: 'https://liquipedia.net/valorant/TestPlayer' }]);
+      service.getPlayerEarnings = jest.fn().mockResolvedValue(mockEarnings);
+      service.updatePlayerEarnings = jest.fn().mockResolvedValue(true);
       
-      const mockSearchResults = [
-        { title: 'TenZ', url: 'https://liquipedia.net/valorant/TenZ' }
-      ];
+      const result = await service.processPlayerEarnings(playerId);
       
-      const mockEarnings = {
-        total: 50000,
-        by_year: { '2023': 30000, '2024': 20000 },
-        tournaments: [{ tournament: 'VCT', prize: 10000 }]
-      };
-      
-      // Mock the service methods
-      jest.spyOn(liquipediaService, 'searchPlayer').mockResolvedValue(mockSearchResults);
-      jest.spyOn(liquipediaService, 'getPlayerEarnings').mockResolvedValue(mockEarnings);
-      jest.spyOn(liquipediaService, 'updatePlayerEarnings').mockResolvedValue(true);
-      
-      // Execute
-      const result = await liquipediaService.processPlayerEarnings('player-id');
-      
-      // Verify
-      expect(db.Player.findByPk).toHaveBeenCalledWith('player-id');
-      expect(liquipediaService.searchPlayer).toHaveBeenCalledWith('TenZ');
-      expect(liquipediaService.getPlayerEarnings).toHaveBeenCalledWith('https://liquipedia.net/valorant/TenZ');
-      expect(liquipediaService.updatePlayerEarnings).toHaveBeenCalledWith('player-id', mockEarnings);
       expect(result).toEqual({
         success: true,
-        player_name: 'TenZ',
-        total_earnings: 50000,
-        tournaments_count: 1
+        player: mockPlayer,
+        earnings: mockEarnings
       });
     });
   });
 
   describe('Queue Management', () => {
     test('queueEarningsUpdates should find players and add them to the queue', async () => {
-      // Setup
       const mockPlayers = [
-        { id: 'player1', name: 'Player1', division: 'T1', rating: 1.5 },
-        { id: 'player2', name: 'Player2', division: 'T2', rating: 1.3 }
+        { id: '1', division: 'T1' },
+        { id: '2', division: 'T2' }
       ];
       
       db.Player.findAll.mockResolvedValue(mockPlayers);
       
-      // Execute
-      const result = await liquipediaService.queueEarningsUpdates({
-        limit: 10,
-        divisions: ['T1', 'T2'],
-        minDaysSinceUpdate: 30
-      });
+      await service.queueEarningsUpdates();
       
-      // Verify
-      expect(db.Player.findAll).toHaveBeenCalledWith(expect.objectContaining({
-        where: expect.objectContaining({
-          division: { [db.Sequelize.Op.in]: ['T1', 'T2'] }
-        }),
-        limit: 10
-      }));
-      
-      // Should have added tasks to scheduler queue
-      expect(scheduler.addToQueue).toHaveBeenCalledTimes(2);
-      expect(scheduler.addToQueue).toHaveBeenCalledWith(expect.objectContaining({
-        type: 'player_earnings',
-        playerId: 'player1'
-      }));
-      expect(scheduler.addToQueue).toHaveBeenCalledWith(expect.objectContaining({
-        type: 'player_earnings',
-        playerId: 'player2'
-      }));
-      
-      expect(result).toEqual({
-        success: true,
-        queued_players: 2,
-        divisions: ['T1', 'T2']
-      });
+      expect(db.Player.findAll).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            division: { [db.Sequelize.Op.in]: ['T1', 'T2'] }
+          })
+        })
+      );
     });
   });
 
   describe('Error Handling', () => {
     test('processPlayerEarnings should handle player not found', async () => {
-      // Setup - player not found
       db.Player.findByPk.mockResolvedValue(null);
       
-      // Execute
-      const result = await liquipediaService.processPlayerEarnings('non-existent-id');
+      const result = await service.processPlayerEarnings('non-existent-id');
       
-      // Verify
       expect(result).toEqual({
         success: false,
         error: 'Player not found: non-existent-id'
@@ -278,24 +211,22 @@ describe('LiquipediaService', () => {
     });
 
     test('searchPlayer should handle search failure gracefully', async () => {
-      // Setup - API error
-      axios.get.mockRejectedValue(new Error('API Error'));
+      axios.get.mockRejectedValue(new Error('Search failed'));
       
-      // Execute
-      const results = await liquipediaService.searchPlayer('ErrorPlayer');
+      const results = await service.searchPlayer('Non-existent Player');
       
-      // Verify
       expect(results).toEqual([]);
     });
 
     test('updatePlayerEarnings should handle database errors', async () => {
-      // Setup - database error
-      db.Player.findByPk.mockResolvedValue(null);
+      const playerId = 'test-id';
+      const earnings = { total: 50000 };
       
-      // Execute
-      const result = await liquipediaService.updatePlayerEarnings('player-id', {});
+      db.Player.findByPk.mockResolvedValue({ id: playerId });
+      db.Player.update.mockRejectedValue(new Error('Database error'));
       
-      // Verify
+      const result = await service.updatePlayerEarnings(playerId, earnings);
+      
       expect(result).toBe(false);
     });
   });

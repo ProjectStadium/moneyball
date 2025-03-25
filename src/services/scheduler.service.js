@@ -19,6 +19,8 @@ class ScraperScheduler {
       T4: 3,
       'Unranked': 1,
     };
+    this.cronJobs = [];
+    this.queueProcessorInterval = null;
   }
 
   /**
@@ -26,9 +28,11 @@ class ScraperScheduler {
    */
   init() {
     // Schedule regular data updates
-    this.scheduleBasicDataUpdate();
-    this.scheduleDetailedPlayerUpdate();
-    this.scheduleEarningsUpdates();
+    this.cronJobs.push(this.scheduleBasicDataUpdate());
+    this.cronJobs.push(this.scheduleDetailedPlayerUpdate());
+    this.cronJobs.push(this.scheduleEarningsUpdates());
+    this.cronJobs.push(this.scheduleTeamUpdate());
+    this.cronJobs.push(this.scheduleTournamentUpdate());
     
     // Process queue continuously
     this.startQueueProcessor();
@@ -41,7 +45,7 @@ class ScraperScheduler {
    */
   scheduleBasicDataUpdate() {
     // Run at 2:00 AM every day
-    cron.schedule('0 2 * * *', async () => {
+    return cron.schedule('0 2 * * *', async () => {
       console.log('Running scheduled basic data update...');
       try {
         // Basic player data scraping (first 3 pages)
@@ -61,7 +65,7 @@ class ScraperScheduler {
    */
   scheduleDetailedPlayerUpdate() {
     // Run at 3:00 AM every Sunday
-    cron.schedule('0 3 * * 0', async () => {
+    return cron.schedule('0 3 * * 0', async () => {
       console.log('Scheduling detailed player updates...');
       try {
         // Get all players that haven't been updated in the last week
@@ -88,11 +92,75 @@ class ScraperScheduler {
   }
 
   /**
+   * Schedule team updates (weekly)
+   */
+  scheduleTeamUpdate() {
+    // Run at 4:00 AM every Sunday
+    return cron.schedule('0 4 * * 0', async () => {
+      console.log('Scheduling team updates...');
+      try {
+        // Get all teams that haven't been updated in the last week
+        const outdatedTeams = await db.Team.findAll({
+          where: {
+            updatedAt: { [Op.lt]: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+          }
+        });
+        
+        console.log(`Found ${outdatedTeams.length} teams needing updates`);
+        
+        // Add teams to queue
+        outdatedTeams.forEach(team => {
+          this.addToQueue({
+            type: 'team_update',
+            teamId: team.id,
+            priority: 5, // Medium priority
+            timestamp: Date.now()
+          });
+        });
+      } catch (error) {
+        console.error('Error scheduling team updates:', error);
+      }
+    });
+  }
+
+  /**
+   * Schedule tournament updates (daily)
+   */
+  scheduleTournamentUpdate() {
+    // Run at 5:00 AM every day
+    return cron.schedule('0 5 * * *', async () => {
+      console.log('Scheduling tournament updates...');
+      try {
+        // Get all tournaments that haven't been updated in the last day
+        const outdatedTournaments = await db.Tournament.findAll({
+          where: {
+            updatedAt: { [Op.lt]: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+          }
+        });
+        
+        console.log(`Found ${outdatedTournaments.length} tournaments needing updates`);
+        
+        // Add tournaments to queue
+        outdatedTournaments.forEach(tournament => {
+          this.addToQueue({
+            type: 'tournament_update',
+            tournamentId: tournament.id,
+            priority: 7, // High priority
+            timestamp: Date.now()
+          });
+        });
+      } catch (error) {
+        console.error('Error scheduling tournament updates:', error);
+      }
+    });
+  }
+
+  /**
    * Schedule earnings updates for priority players
    */
   scheduleEarningsUpdates() {
     // Run at 4:00 AM every Monday and Thursday
-    cron.schedule('0 4 * * 1,4', async () => {
+    return cron.schedule('0 4 * * 1,4', async () => {
       console.log('Scheduling player earnings updates...');
       try {
         const liquipediaService = require('./liquipedia.service');
@@ -153,7 +221,7 @@ class ScraperScheduler {
    */
   startQueueProcessor() {
     // Process queue every 5 seconds
-    setInterval(() => {
+    this.queueProcessorInterval = setInterval(() => {
       this.processNextInQueue();
     }, 5000);
     
@@ -294,6 +362,34 @@ class ScraperScheduler {
     });
     
     return distribution;
+  }
+
+  /**
+   * Stop all scheduled tasks
+   */
+  stop() {
+    // Clear queue processor interval first
+    if (this.queueProcessorInterval) {
+      clearInterval(this.queueProcessorInterval);
+      this.queueProcessorInterval = null;
+    }
+    
+    // Stop all cron jobs
+    if (this.cronJobs) {
+      this.cronJobs.forEach(job => {
+        if (job && typeof job.stop === 'function') {
+          job.stop();
+        }
+      });
+    }
+    this.cronJobs = [];
+    
+    // Clear queue
+    this.queue = [];
+    this.activeRequests = 0;
+    this.isRunning = false;
+    
+    console.log('Scheduler stopped');
   }
 }
 
