@@ -5,39 +5,65 @@ const { Sequelize } = require('sequelize');
 // Set NODE_ENV to development for logging
 process.env.NODE_ENV = 'development';
 
-// Validate required environment variables
-const requiredEnvVars = [
-  'POSTGRES_HOST', 
-  'POSTGRES_PORT', 
-  'POSTGRES_DB', 
-  'POSTGRES_USER', 
-  'POSTGRES_PASSWORD'
-];
-
-requiredEnvVars.forEach(varName => {
-  if (!process.env[varName]) {
-    console.error(`Missing required environment variable: ${varName}`);
-    process.exit(1);
+// Get database configuration
+const getDbConfig = () => {
+  if (process.env.DATABASE_URL) {
+    const url = new URL(process.env.DATABASE_URL);
+    return {
+      database: url.pathname.slice(1),
+      username: url.username,
+      password: url.password,
+      host: url.hostname,
+      port: url.port,
+      dialect: 'postgres'
+    };
   }
-});
+
+  // Validate required environment variables for individual connection
+  const requiredEnvVars = [
+    'POSTGRES_HOST', 
+    'POSTGRES_PORT', 
+    'POSTGRES_DB', 
+    'POSTGRES_USER', 
+    'POSTGRES_PASSWORD'
+  ];
+
+  requiredEnvVars.forEach(varName => {
+    if (!process.env[varName]) {
+      console.error(`Missing required environment variable: ${varName}`);
+      process.exit(1);
+    }
+  });
+
+  return {
+    database: process.env.POSTGRES_DB,
+    username: process.env.POSTGRES_USER,
+    password: process.env.POSTGRES_PASSWORD,
+    host: process.env.POSTGRES_HOST,
+    port: process.env.POSTGRES_PORT,
+    dialect: 'postgres'
+  };
+};
+
+const dbConfig = getDbConfig();
 
 // Log database configuration (without password)
 console.log('Database Configuration:', {
-  host: process.env.POSTGRES_HOST,
-  port: process.env.POSTGRES_PORT,
-  database: process.env.POSTGRES_DB,
-  user: process.env.POSTGRES_USER
+  host: dbConfig.host,
+  port: dbConfig.port,
+  database: dbConfig.database,
+  user: dbConfig.username
 });
 
 // Create Sequelize instance with enhanced configuration
 const sequelize = new Sequelize(
-  process.env.POSTGRES_DB,    // database
-  process.env.POSTGRES_USER,  // username
-  process.env.POSTGRES_PASSWORD, // password
+  dbConfig.database,
+  dbConfig.username,
+  dbConfig.password,
   {
-    host: process.env.POSTGRES_HOST,
-    port: process.env.POSTGRES_PORT,
-    dialect: 'postgres',
+    host: dbConfig.host,
+    port: dbConfig.port,
+    dialect: dbConfig.dialect,
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     pool: {
       max: 10,     // Increased max connections
