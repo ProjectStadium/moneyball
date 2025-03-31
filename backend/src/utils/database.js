@@ -3,22 +3,33 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env'
 const { Sequelize } = require('sequelize');
 
 // Set NODE_ENV to development for logging
-process.env.NODE_ENV = 'development';
+const env = process.env.NODE_ENV || 'development';
 
-// Get database configuration
-const getDbConfig = () => {
-  if (process.env.DATABASE_URL) {
-    const url = new URL(process.env.DATABASE_URL);
-    return {
-      database: url.pathname.slice(1),
-      username: url.username,
-      password: url.password,
-      host: url.hostname,
-      port: url.port,
-      dialect: 'postgres'
-    };
-  }
+let sequelize;
 
+if (process.env.DATABASE_URL) {
+  console.log('Using DATABASE_URL for connection');
+  sequelize = new Sequelize(process.env.DATABASE_URL, {
+    dialect: 'postgres',
+    protocol: 'postgres',
+    dialectOptions: {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false
+      }
+    },
+    logging: env === 'development' ? console.log : false,
+    pool: {
+      max: 10,
+      min: 2,
+      acquire: 30000,
+      idle: 10000,
+      evict: 1000,
+      handleDisconnects: true
+    }
+  });
+} else {
+  console.log('Using individual connection parameters');
   // Validate required environment variables for individual connection
   const requiredEnvVars = [
     'POSTGRES_HOST', 
@@ -35,86 +46,44 @@ const getDbConfig = () => {
     }
   });
 
-  return {
-    database: process.env.POSTGRES_DB,
-    username: process.env.POSTGRES_USER,
-    password: process.env.POSTGRES_PASSWORD,
+  // Log database configuration (without password)
+  console.log('Database Configuration:', {
     host: process.env.POSTGRES_HOST,
     port: process.env.POSTGRES_PORT,
-    dialect: 'postgres'
-  };
-};
+    database: process.env.POSTGRES_DB,
+    user: process.env.POSTGRES_USER
+  });
 
-const dbConfig = getDbConfig();
-
-// Log database configuration (without password)
-console.log('Database Configuration:', {
-  host: dbConfig.host,
-  port: dbConfig.port,
-  database: dbConfig.database,
-  user: dbConfig.username
-});
-
-// Create Sequelize instance with enhanced configuration
-const sequelize = new Sequelize(
-  dbConfig.database,
-  dbConfig.username,
-  dbConfig.password,
-  {
-    host: dbConfig.host,
-    port: dbConfig.port,
-    dialect: dbConfig.dialect,
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
-    pool: {
-      max: 10,     // Increased max connections
-      min: 2,      // Increased min connections
-      acquire: 30000,  // Increased acquire timeout
-      idle: 10000,     // Increased idle timeout
-      evict: 1000,     // Check for dead connections every second
-      handleDisconnects: true
-    },
-    define: {
-      underscored: true,  // Use snake_case for all fields
-      timestamps: true,   // Add timestamps
-      freezeTableName: true // Don't pluralize table names
-    },
-    dialectOptions: {
-      useUTC: true,
-      dateStrings: true,
-      typeCast: true,
-      // Enable PostgreSQL specific features
-      statement_timeout: 60000, // 1 minute timeout
-      idle_in_transaction_session_timeout: 60000,
-      // Enable RETURNING clause
-      returning: true
-    },
-    retry: {
-      max: 5,      // Maximum number of retries
-      backoffBase: 1000, // Base delay between retries
-      backoffExponent: 1.5 // Exponential backoff
-    }
-  }
-);
-
-// Enhanced connection testing with retries
-const testConnection = async (retries = 3, delay = 5000) => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      console.log(`Attempting database connection (attempt ${attempt}/${retries})...`);
-      await sequelize.authenticate();
-      console.log('PostgreSQL connection has been established successfully.');
-      return true;
-    } catch (error) {
-      console.error(`Connection attempt ${attempt}/${retries} failed:`, error.message);
-      if (attempt < retries) {
-        console.log(`Retrying in ${delay/1000} seconds...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // Exponential backoff
-      } else {
-        console.error('All connection attempts failed');
-        throw error;
+  sequelize = new Sequelize(
+    process.env.POSTGRES_DB,
+    process.env.POSTGRES_USER,
+    process.env.POSTGRES_PASSWORD,
+    {
+      host: process.env.POSTGRES_HOST,
+      port: process.env.POSTGRES_PORT,
+      dialect: 'postgres',
+      logging: env === 'development' ? console.log : false,
+      pool: {
+        max: 10,
+        min: 2,
+        acquire: 30000,
+        idle: 10000,
+        evict: 1000,
+        handleDisconnects: true
       }
     }
+  );
+}
+
+// Test the connection
+const testConnection = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('Database connection has been established successfully.');
+    return true;
+  } catch (error) {
+    console.error('Unable to connect to the database:', error);
+    return false;
   }
 };
 
