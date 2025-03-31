@@ -28,6 +28,14 @@ app.use((req, res, next) => {
 
 // Import routes first
 console.log('[DEBUG] Registering API routes...');
+
+// Health check route
+app.use('/api', require('./routes/health'));
+
+// Debug: Print all routes before registration
+const riotRoutes = require('./routes/riot.routes');
+console.log('[DEBUG] Riot routes:', Object.keys(riotRoutes.stack || {}).map(key => riotRoutes.stack[key].route?.path).filter(Boolean));
+
 app.use('/api/players', require('./routes/player.routes'));
 app.use('/api/teams', require('./routes/team.routes'));
 app.use('/api/tournaments', require('./routes/tournament.routes'));
@@ -35,6 +43,10 @@ app.use('/api/analysis', require('./routes/analysis.routes'));
 app.use('/api/payments', require('./routes/payment.routes'));
 app.use('/api/data-integration', require('./routes/dataIntegrationRoutes'));
 app.use('/api/data-import', require('./routes/dataImport.routes'));
+app.use('/api/riot', riotRoutes);
+app.use('/api/liquipedia', require('./routes/liquipedia.routes'));
+app.use('/api/role-performance', require('./routes/rolePerformance.routes'));
+app.use('/api/data-collection', require('./routes/dataCollection.routes'));
 
 // Admin routes (should be protected in production)
 app.use('/api/admin', require('./routes/admin.routes'));
@@ -55,11 +67,19 @@ app.get('/api/data-import/test', (req, res) => {
 
 // Debug: Print all registered routes
 console.log('\nRegistered Routes:');
-app._router.stack.forEach(function(r){
-  if (r.route && r.route.path){
-    console.log(`${Object.keys(r.route.methods)} ${r.route.path}`);
-  }
-});
+function printRoutes(stack, prefix = '') {
+  stack.forEach(function(r) {
+    if (r.route) {
+      // Direct route
+      console.log(`${Object.keys(r.route.methods)} ${prefix}${r.route.path}`);
+    } else if (r.name === 'router') {
+      // Router middleware
+      const path = r.regexp.toString().replace(/\\\//g, '/').replace(/[^/]/g, '');
+      printRoutes(r.handle.stack, prefix + path);
+    }
+  });
+}
+printRoutes(app._router.stack);
 
 // 404 handler
 app.use((req, res) => {
@@ -82,39 +102,20 @@ const startServer = async () => {
   try {
     // Test database connection first
     await testConnection();
-    console.log('Database connection test successful');
-
-    // Sync database models without force to preserve existing data
-    await db.sequelize.sync();
-    console.log('Database synchronized successfully');
-
-    // Initialize the scheduler
-    scheduler.init();
-    console.log('Scheduler initialized');
+    console.log('[INFO] Database connection successful');
 
     // Start the server
     app.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
-      
-      // Wait a short moment to ensure scheduler is ready
-      setTimeout(() => {
-        // Then try to collect data in the background using the scheduler
-        console.log('Starting initial data collection...');
-        scheduler.triggerImmediateDataCollection()
-          .then(result => {
-            console.log('Initial data collection result:', result);
-            if (!result.success) {
-              console.error('Some steps failed during initial data collection:', result.steps);
-            }
-          })
-          .catch(error => {
-            console.error('Error during initial data collection:', error);
-            // Don't exit the process, just log the error
-          });
-      }, 1000); // Wait 1 second before starting data collection
+      console.log(`[INFO] Server is running on port ${PORT}`);
+      console.log(`[INFO] Environment: ${process.env.NODE_ENV || 'development'}`);
     });
+
+    // Start the scheduler
+    scheduler.start();
+    console.log('[INFO] Scheduler started');
+
   } catch (error) {
-    console.error('Failed to initialize server:', error);
+    console.error('[ERROR] Failed to start server:', error);
     process.exit(1);
   }
 };

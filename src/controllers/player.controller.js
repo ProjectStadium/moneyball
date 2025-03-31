@@ -2,6 +2,7 @@
 const db = require('../models');
 const Player = db.Player;
 const { Op } = require('sequelize');
+const liquipediaService = require('../services/liquipediaService');
 
 // Get all players with optional filtering
 exports.findAll = async (req, res) => {
@@ -271,6 +272,102 @@ exports.getStats = async (req, res) => {
     console.error('Error retrieving player stats:', error);
     res.status(500).json({
       message: error.message || 'An error occurred while retrieving player stats.'
+    });
+  }
+};
+
+// Search for player on Liquipedia and update their data
+exports.searchAndUpdateLiquipedia = async (req, res) => {
+  try {
+    const { name } = req.query;
+    
+    if (!name) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Player name is required' 
+      });
+    }
+
+    console.log(`Searching for player: ${name}`);
+
+    // Search for player on Liquipedia
+    const searchResults = await liquipediaService.searchPlayer(name);
+    
+    if (!searchResults || searchResults.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Player not found on Liquipedia' 
+      });
+    }
+
+    // Get the first result
+    const liquipediaPlayer = searchResults[0];
+    console.log(`Found player: ${liquipediaPlayer.title}`);
+    
+    // Get or create player in our database
+    let player = await Player.findOne({ 
+      where: { 
+        [Op.or]: [
+          { name: { [Op.iLike]: name } },
+          { liquipedia_url: liquipediaPlayer.url }
+        ]
+      }
+    });
+
+    if (!player) {
+      console.log('Creating new player record');
+      player = await Player.create({ 
+        name: liquipediaPlayer.title,
+        liquipedia_url: liquipediaPlayer.url
+      });
+    } else {
+      console.log('Updating existing player record');
+      player.liquipedia_url = liquipediaPlayer.url;
+      await player.save();
+    }
+
+    // Get detailed player data from Liquipedia
+    console.log('Fetching detailed player data');
+    const liquipediaData = await liquipediaService.getPlayerPage(liquipediaPlayer.title);
+    
+    if (liquipediaData) {
+      // Extract earnings data
+      const earnings = liquipediaService._extractEarningsFromPage(liquipediaData);
+      
+      if (earnings) {
+        // Update player's earnings data
+        player.total_earnings = earnings.total;
+        player.tournament_earnings = earnings.tournaments;
+        player.earnings_last_updated = new Date();
+      }
+
+      // Update player's Liquipedia stats
+      player.liquipedia_stats = {
+        ...liquipediaData,
+        last_updated: new Date()
+      };
+      
+      await player.save();
+      console.log('Successfully updated player data');
+    }
+
+    return res.json({
+      success: true,
+      player: {
+        id: player.id,
+        name: player.name,
+        liquipedia_url: player.liquipedia_url,
+        total_earnings: player.total_earnings,
+        tournament_earnings: player.tournament_earnings,
+        earnings_last_updated: player.earnings_last_updated
+      },
+      liquipedia_data: liquipediaData
+    });
+  } catch (error) {
+    console.error('Error searching and updating Liquipedia data:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: error.message || 'Failed to search and update Liquipedia data'
     });
   }
 };

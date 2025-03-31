@@ -5,6 +5,18 @@ const csv = require('csv-parse/sync');
 class DataEnrichmentService {
   constructor() {
     this.teamsData = new Map();
+    this.logFile = path.join(__dirname, '../../../logs/role_determination.log');
+    
+    // Create logs directory if it doesn't exist
+    const logsDir = path.dirname(this.logFile);
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+
+    // Clear the log file on service start
+    fs.writeFileSync(this.logFile, '', 'utf8');
+    
+    this.log('DataEnrichmentService initialized');
     this.regions = {
       'NA': ['US', 'CA', 'MX'],
       'APAC': ['KR', 'JP', 'CN', 'AU', 'SG', 'IN', 'PH', 'VN', 'TH', 'ID', 'MY', 'HK', 'TW'],
@@ -20,6 +32,7 @@ class DataEnrichmentService {
     this.agentRoles = {
       'astra': 'Controller',
       'brimstone': 'Controller',
+      'clove': 'Controller',
       'harbor': 'Controller',
       'omen': 'Controller',
       'viper': 'Controller',
@@ -29,19 +42,29 @@ class DataEnrichmentService {
       'kayo': 'Initiator',
       'skye': 'Initiator',
       'sova': 'Initiator',
+      'tejo': 'Initiator',
       'chamber': 'Sentinel',
       'cypher': 'Sentinel',
       'deadlock': 'Sentinel',
       'killjoy': 'Sentinel',
       'sage': 'Sentinel',
+      'vyse': 'Sentinel',
       'jett': 'Duelist',
       'neon': 'Duelist',
       'phoenix': 'Duelist',
       'raze': 'Duelist',
       'reyna': 'Duelist',
+      'waylay': 'Duelist',
       'yoru': 'Duelist',
       'iso': 'Duelist'
     };
+  }
+
+  log(message, data = null) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] ${message}\n${data ? JSON.stringify(data, null, 2) + '\n' : ''}`;
+    fs.appendFileSync(this.logFile, logMessage);
+    console.log(logMessage);
   }
 
   loadTeamsData() {
@@ -230,69 +253,142 @@ class DataEnrichmentService {
     return Math.round(estimatedValue);
   }
 
-  determinePlaystylesFromAgents(agentUsage) {
-    // Calculate total plays and role distribution
-    let totalPlays = 0;
-    const roleCounts = {
-      'Duelist': 0,
-      'Controller': 0,
-      'Initiator': 0,
-      'Sentinel': 0
-    };
+  /**
+   * Determines a player's playstyles based on their agent usage
+   * @param {Object} agentUsage - Object containing agent usage data
+   * @param {string} source - Source of the data (vlr, riot, liquipedia)
+   * @param {string} playerName - Name of the player for logging
+   * @returns {Object} Object containing primary roles and role percentages
+   */
+  determinePlaystylesFromAgents(agentUsage, source = 'vlr', playerName = 'Unknown') {
+    const logPrefix = `[${playerName}]`;
+    console.log(`${logPrefix} Processing agent usage for source: ${source}`);
+    console.log(`${logPrefix} Input agent usage:`, JSON.stringify(agentUsage, null, 2));
+    console.log(`${logPrefix} Agent roles mapping:`, JSON.stringify(this.agentRoles, null, 2));
 
-    // Count plays by role
+    if (!agentUsage || typeof agentUsage !== 'object' || Object.keys(agentUsage).length === 0) {
+      console.log(`${logPrefix} No valid agent usage data provided`);
+      return {
+        primary_roles: ['Unknown'],
+        role_percentages: {},
+        insufficient_data: true,
+        source
+      };
+    }
+
+    // Initialize role counts
+    const roleCounts = {};
+    let totalPlays = 0;
+
+    // Process each agent's usage
     Object.entries(agentUsage).forEach(([agent, data]) => {
-      const role = this.agentRoles[agent] || 'Unknown';
-      if (role !== 'Unknown') {
-        roleCounts[role] += data.playCount;
+      const agentLower = agent.toLowerCase();
+      const role = this.agentRoles[agentLower];
+      const count = typeof data === 'number' ? data : 
+                   typeof data === 'object' && data.playCount ? data.playCount :
+                   typeof data === 'object' && data.percentage ? data.percentage : 0;
+
+      console.log(`${logPrefix} Processing agent ${agent}:`);
+      console.log(`${logPrefix}   - Role:`, role);
+      console.log(`${logPrefix}   - Count:`, count);
+
+      if (role) {
+        roleCounts[role] = (roleCounts[role] || 0) + count;
+        console.log(`${logPrefix}   - Added ${count} to role ${role}`);
+        totalPlays += count;
+      } else {
+        console.log(`${logPrefix}   - Unknown role for agent ${agent}`);
       }
-      totalPlays += data.playCount;
     });
 
-    if (totalPlays === 0) return null;
+    console.log(`${logPrefix} Role counts:`, roleCounts);
+    console.log(`${logPrefix} Total plays:`, totalPlays);
 
-    // Calculate percentages
+    if (totalPlays === 0) {
+      console.log(`${logPrefix} No valid plays found`);
+      return {
+        primary_roles: ['Unknown'],
+        role_percentages: {},
+        insufficient_data: true,
+        source
+      };
+    }
+
+    // Calculate percentages for each role
     const rolePercentages = {};
     Object.entries(roleCounts).forEach(([role, count]) => {
-      rolePercentages[role] = Math.round((count / totalPlays) * 100);
+      rolePercentages[role] = (count / totalPlays) * 100;
     });
 
-    // Determine primary and secondary playstyles
-    let playstyles = Object.entries(rolePercentages)
-      .sort((a, b) => b[1] - a[1])
-      .filter(([_, percentage]) => percentage > 20)
-      .map(([role, percentage]) => `${role} (${percentage}%)`);
+    console.log(`${logPrefix} Role percentages:`, rolePercentages);
 
-    // Determine special playstyle traits
-    const traits = [];
-    
-    // Check for IGLs (common for Controller mains)
-    if (rolePercentages['Controller'] > 40) {
-      traits.push('Potential IGL');
-    }
-    
-    // Check for support players (Initiator/Sentinel focus)
-    if (rolePercentages['Initiator'] + rolePercentages['Sentinel'] > 60) {
-      traits.push('Support-oriented');
-    }
-    
-    // Check for entry fraggers (Duelist-heavy)
-    if (rolePercentages['Duelist'] > 50) {
-      traits.push('Entry Fragger');
-    }
-    
-    // Check for flex players (balanced role distribution)
-    const roleSpread = Math.max(...Object.values(rolePercentages)) - Math.min(...Object.values(rolePercentages));
-    if (roleSpread < 30 && Object.values(rolePercentages).every(pct => pct > 15)) {
-      traits.push('Flex Player');
+    // Sort roles by percentage
+    const sortedRoles = Object.entries(rolePercentages)
+      .sort(([, a], [, b]) => b - a);
+
+    console.log(`${logPrefix} Sorted roles:`, sortedRoles);
+
+    // Determine primary roles (roles with >20% usage)
+    const primaryRoles = sortedRoles
+      .filter(([, percentage]) => percentage >= 20)
+      .map(([role]) => role);
+
+    console.log(`${logPrefix} Primary roles:`, primaryRoles);
+
+    // If no roles meet the threshold, use the highest percentage role
+    if (primaryRoles.length === 0 && sortedRoles.length > 0) {
+      primaryRoles.push(sortedRoles[0][0]);
+      console.log(`${logPrefix} Using highest percentage role:`, sortedRoles[0][0]);
     }
 
-    // Combine playstyles and traits
-    return {
-      primary_roles: playstyles,
-      traits: traits,
-      role_percentages: rolePercentages
+    // If still no primary roles, mark as Unknown
+    if (primaryRoles.length === 0) {
+      console.log(`${logPrefix} No primary roles found`);
+      return {
+        primary_roles: ['Unknown'],
+        role_percentages: rolePercentages,
+        insufficient_data: true,
+        source
+      };
+    }
+
+    const result = {
+      primary_roles: primaryRoles,
+      role_percentages: rolePercentages,
+      source
     };
+
+    console.log(`${logPrefix} Final result:`, JSON.stringify(result, null, 2));
+    return result;
+  }
+
+  /**
+   * Calculate confidence level for a playstyle trait
+   * @param {Object} metrics - Object containing relevant metrics
+   * @returns {string} Confidence level: 'high', 'medium', or 'low'
+   */
+  calculateConfidence(metrics) {
+    // Convert all metrics to 0-1 scale
+    const normalizedMetrics = Object.entries(metrics).map(([key, value]) => {
+      if (key.includes('percentage') || key.includes('pct') || key.includes('rate')) {
+        return value; // Already 0-1
+      }
+      if (key.includes('rating')) {
+        return (value - 0.5) / 1.5; // Convert 0.5-2.0 to 0-1
+      }
+      if (key === 'role_spread') {
+        return 1 - (value / 100); // Convert spread to similarity
+      }
+      return value > 1 ? value / 100 : value; // Default normalization
+    });
+
+    // Calculate average confidence
+    const avgConfidence = normalizedMetrics.reduce((a, b) => a + b, 0) / normalizedMetrics.length;
+
+    // Return confidence level
+    if (avgConfidence > 0.7) return 'high';
+    if (avgConfidence > 0.4) return 'medium';
+    return 'low';
   }
 
   determinePlayerDivision(tournamentHistory) {
@@ -361,4 +457,4 @@ class DataEnrichmentService {
   }
 }
 
-module.exports = new DataEnrichmentService(); 
+module.exports = DataEnrichmentService; 

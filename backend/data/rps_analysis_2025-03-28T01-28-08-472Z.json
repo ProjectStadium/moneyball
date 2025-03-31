@@ -1,0 +1,462 @@
+{
+  "timestamp": "2025-03-28T01:28:08.473Z",
+  "players": [
+    {
+      "name": "madv",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "breach",
+        "tejo",
+        "kayo"
+      ],
+      "finalScore": 74.76500000000001,
+      "originalScore": 75.35000000000001,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.55,
+        "acs": 220.8,
+        "kda": 28.999999999999996,
+        "deaths_per_map": 0.52,
+        "first_bloods": 0.9100000000000001,
+        "utility": {
+          "smokes": 0.83,
+          "flashes": 0.83,
+          "recon": 0.83,
+          "traps": 0.83,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 77.5,
+        "acs": 35.400000000000006,
+        "kda": 100,
+        "deaths_per_map": 110.00000000000001,
+        "first_bloods": 22.750000000000004
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": -0.5849999999999937
+      }
+    },
+    {
+      "name": "Mephisto",
+      "role": "Duelist",
+      "team": "",
+      "agents": [
+        "neon",
+        "yoru",
+        "jett"
+      ],
+      "finalScore": 84.0125,
+      "originalScore": 82.25750000000001,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.44,
+        "acs": 303.8,
+        "kda": 6.777777777777778,
+        "deaths_per_map": 2.34,
+        "first_bloods": 3.5100000000000002,
+        "utility": {
+          "smokes": 0.71,
+          "flashes": 0.71,
+          "recon": 0.71,
+          "traps": 0.71,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 72,
+        "acs": 76.9,
+        "kda": 100,
+        "deaths_per_map": 120,
+        "first_bloods": 87.75
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": 1.7549999999999955
+      }
+    },
+    {
+      "name": "babytz",
+      "role": "Controller",
+      "team": "",
+      "agents": [
+        "viper",
+        "cypher",
+        "vyse"
+      ],
+      "finalScore": 79.56,
+      "originalScore": 80.675,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.52,
+        "acs": 270.6,
+        "kda": 17.428571428571427,
+        "deaths_per_map": 0.9100000000000001,
+        "first_bloods": 1.56,
+        "utility": {
+          "smokes": 0.77,
+          "flashes": 0.77,
+          "recon": 0.77,
+          "traps": 0.77,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 76,
+        "acs": 60.30000000000001,
+        "kda": 100,
+        "deaths_per_map": 90,
+        "first_bloods": 39
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": -1.1149999999999949
+      }
+    },
+    {
+      "name": "siraphop",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "tejo"
+      ],
+      "finalScore": 75.82000000000001,
+      "originalScore": 76.4,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.52,
+        "acs": 231.6,
+        "kda": 29.249999999999996,
+        "deaths_per_map": 0.52,
+        "first_bloods": 0.65,
+        "utility": {
+          "smokes": 0.84,
+          "flashes": 0.84,
+          "recon": 0.84,
+          "traps": 0.84,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 76,
+        "acs": 40.8,
+        "kda": 100,
+        "deaths_per_map": 110.00000000000001,
+        "first_bloods": 16.25
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": -0.5799999999999983
+      }
+    },
+    {
+      "name": "niffy",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "vyse",
+        "cypher"
+      ],
+      "finalScore": 76.2275,
+      "originalScore": 76.8375,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.48,
+        "acs": 238.3,
+        "kda": 29.249999999999996,
+        "deaths_per_map": 0.52,
+        "first_bloods": 1.04,
+        "utility": {
+          "smokes": 0.78,
+          "flashes": 0.78,
+          "recon": 0.78,
+          "traps": 0.78,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 74,
+        "acs": 44.150000000000006,
+        "kda": 100,
+        "deaths_per_map": 110.00000000000001,
+        "first_bloods": 26
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": -0.6099999999999994
+      }
+    },
+    {
+      "name": "thyy",
+      "role": "Controller",
+      "team": "",
+      "agents": [
+        "astra",
+        "brimstone",
+        "omen"
+      ],
+      "finalScore": 73.42999999999999,
+      "originalScore": 74.55,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.33,
+        "acs": 229.2,
+        "kda": 63.5,
+        "deaths_per_map": 0.26,
+        "first_bloods": 0.65,
+        "utility": {
+          "smokes": 0.76,
+          "flashes": 0.76,
+          "recon": 0.76,
+          "traps": 0.76,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 66.5,
+        "acs": 39.599999999999994,
+        "kda": 100,
+        "deaths_per_map": 90,
+        "first_bloods": 16.25
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": -1.1200000000000045
+      }
+    },
+    {
+      "name": "ComeBack",
+      "role": "Duelist",
+      "team": "",
+      "agents": [
+        "neon",
+        "jett"
+      ],
+      "finalScore": 79.875,
+      "originalScore": 78.575,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.57,
+        "acs": 269.5,
+        "kda": 10.363636363636363,
+        "deaths_per_map": 1.43,
+        "first_bloods": 2.6,
+        "utility": {
+          "smokes": 0.77,
+          "flashes": 0.77,
+          "recon": 0.77,
+          "traps": 0.77,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 78.5,
+        "acs": 59.75,
+        "kda": 100,
+        "deaths_per_map": 120,
+        "first_bloods": 65
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": 1.2999999999999972
+      }
+    },
+    {
+      "name": "StarBound",
+      "role": "Sentinel",
+      "team": "",
+      "agents": [
+        "chamber",
+        "iso"
+      ],
+      "finalScore": 75.57499999999999,
+      "originalScore": 76.21,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.42,
+        "acs": 236.6,
+        "kda": 11.222222222222223,
+        "deaths_per_map": 1.17,
+        "first_bloods": 2.21,
+        "utility": {
+          "smokes": 0.73,
+          "flashes": 0.73,
+          "recon": 0.73,
+          "traps": 0.73,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 71,
+        "acs": 43.3,
+        "kda": 100,
+        "deaths_per_map": 80,
+        "first_bloods": 55.25
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": -0.6350000000000051
+      }
+    },
+    {
+      "name": "Sayonara",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "tejo",
+        "fade",
+        "vyse"
+      ],
+      "finalScore": 75.76,
+      "originalScore": 76.375,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.36,
+        "acs": 244.2,
+        "kda": 14.624999999999998,
+        "deaths_per_map": 1.04,
+        "first_bloods": 1.3,
+        "utility": {
+          "smokes": 0.77,
+          "flashes": 0.77,
+          "recon": 0.77,
+          "traps": 0.77,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 68,
+        "acs": 47.099999999999994,
+        "kda": 100,
+        "deaths_per_map": 110.00000000000001,
+        "first_bloods": 32.5
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": -0.6149999999999949
+      }
+    },
+    {
+      "name": "Lar0k",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "breach",
+        "kayo",
+        "raze"
+      ],
+      "finalScore": 72.3525,
+      "originalScore": 72.9625,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.31,
+        "acs": 220.9,
+        "kda": 15.25,
+        "deaths_per_map": 1.04,
+        "first_bloods": 1.17,
+        "utility": {
+          "smokes": 0.78,
+          "flashes": 0.78,
+          "recon": 0.78,
+          "traps": 0.78,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        }
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 65.5,
+        "acs": 35.45,
+        "kda": 100,
+        "deaths_per_map": 110.00000000000001,
+        "first_bloods": 29.25
+      },
+      "roleAdjustments": {
+        "applied": true,
+        "amount": -0.6099999999999994
+      }
+    }
+  ],
+  "roleStats": [
+    {
+      "role": "Initiator",
+      "averageScore": 74.98500000000001,
+      "medianScore": 75.76,
+      "scoreRange": {
+        "min": 72.3525,
+        "max": 76.2275
+      },
+      "averageSdiff": 0,
+      "medianSdiff": 0,
+      "sdiffRange": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "role": "Duelist",
+      "averageScore": 81.94375,
+      "medianScore": 84.0125,
+      "scoreRange": {
+        "min": 79.875,
+        "max": 84.0125
+      },
+      "averageSdiff": 0,
+      "medianSdiff": 0,
+      "sdiffRange": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "role": "Controller",
+      "averageScore": 76.495,
+      "medianScore": 79.56,
+      "scoreRange": {
+        "min": 73.42999999999999,
+        "max": 79.56
+      },
+      "averageSdiff": 0,
+      "medianSdiff": 0,
+      "sdiffRange": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "role": "Sentinel",
+      "averageScore": 75.57499999999999,
+      "medianScore": 75.57499999999999,
+      "scoreRange": {
+        "min": 75.57499999999999,
+        "max": 75.57499999999999
+      },
+      "averageSdiff": 0,
+      "medianSdiff": 0,
+      "sdiffRange": {
+        "min": 0,
+        "max": 0
+      }
+    }
+  ]
+}

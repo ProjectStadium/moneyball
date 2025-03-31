@@ -6,17 +6,23 @@ const players = require('../controllers/player.controller');
 // Get all players (with optional filtering)
 router.get('/', players.findAll);
 
-// Get free agents
-router.get('/free-agents', players.getFreeAgents);
-
-// Get top players by specific stat
-router.get('/top', players.getTopPlayers);
+// Get a single player by ID
+router.get('/:id', players.findOne);
 
 // Get players by team
 router.get('/team/:team_abbreviation', players.getPlayersByTeam);
 
-// Get a single player by id
-router.get('/:id', players.findOne);
+// Get free agents
+router.get('/free-agents', players.getFreeAgents);
+
+// Get top players by specific stat
+router.get('/top/:stat', players.getTopPlayers);
+
+// Search for player on Liquipedia and update their data
+router.get('/search/liquipedia', players.searchAndUpdateLiquipedia);
+
+// Get player statistics
+router.get('/:id/stats', players.getStats);
 
 // Create a new player
 router.post('/', players.create);
@@ -26,11 +32,5 @@ router.put('/:id', players.update);
 
 // Delete a player
 router.delete('/:id', players.delete);
-
-// Get player statistics
-router.get('/:id/stats', players.getStats);
-
-// Get top players by specific stat
-router.get('/top/:stat', players.getTopPlayers);
 
 module.exports = router;

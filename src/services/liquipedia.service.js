@@ -3,38 +3,62 @@ const axios = require('axios');
 const db = require('../models');
 const { Op } = require('sequelize');
 const { Tournament } = db;
+const cheerio = require('cheerio');
+const cache = require('../services/cache.service');
 
 class LiquipediaService {
   constructor() {
+    this.Player = db.Player;
+    this.Team = db.Team;
+    this.Tournament = db.Tournament;
+    this.Earnings = db.Earnings;
     this.baseUrl = 'https://liquipedia.net/valorant/api.php';
-    this.userAgent = 'Moneyball Valorant Analytics Tool/1.0 (contact@yourdomainhere.com)';
+    this.userAgent = 'Moneyball Valorant Analytics Tool/1.0 (https://winrvte.com; contact@winrvte.com)';
     this.headers = {
       'User-Agent': this.userAgent,
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'Accept-Encoding': 'gzip'
     };
     this.lastRequestTime = 0;
-    this.requestDelay = 2000; // 2 seconds between requests
+    this.lastParseRequestTime = 0;
+    this.generalDelay = 2000; // 2 seconds between general requests
+    this.parseDelay = 30000;  // 30 seconds between parse requests
+    this.maxRetries = 3;
   }
 
   /**
-   * Ensure we respect the rate limits
+   * Respect rate limits between requests
    */
-  async respectRateLimit() {
+  async respectRateLimit(isParseRequest = false) {
     const now = Date.now();
-    const timeSinceLastRequest = now - this.lastRequestTime;
+    const delay = isParseRequest ? this.parseDelay : this.generalDelay;
+    const lastRequest = isParseRequest ? this.lastParseRequestTime : this.lastRequestTime;
     
-    if (timeSinceLastRequest < this.requestDelay) {
-      await new Promise(resolve => setTimeout(resolve, this.requestDelay - timeSinceLastRequest));
+    if (now - lastRequest < delay) {
+      await new Promise(resolve => setTimeout(resolve, delay - (now - lastRequest)));
     }
     
-    this.lastRequestTime = Date.now();
+    if (isParseRequest) {
+      this.lastParseRequestTime = Date.now();
+    } else {
+      this.lastRequestTime = Date.now();
+    }
   }
 
   /**
-   * Make a request to the Liquipedia API
+   * Exponential backoff for retries
    */
-  async makeRequest(params) {
-    await this.respectRateLimit();
+  async backoff(retryCount) {
+    const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+
+  /**
+   * Make a request to the Liquipedia API with retry logic
+   */
+  async makeRequest(params, retryCount = 0) {
+    const isParseRequest = params.action === 'parse';
+    await this.respectRateLimit(isParseRequest);
     
     try {
       const response = await axios.get(this.baseUrl, {
@@ -46,10 +70,32 @@ class LiquipediaService {
         headers: this.headers
       });
       
+      if (!response.data) {
+        throw new Error('Empty response from Liquipedia API');
+      }
+
       return response.data;
     } catch (error) {
-      console.error('Error making API request:', error.message);
-      throw error;
+      if (error.response) {
+        // Handle rate limiting
+        if (error.response.status === 429 && retryCount < this.maxRetries) {
+          console.log(`Rate limit hit, retrying after backoff (attempt ${retryCount + 1}/${this.maxRetries})`);
+          await this.backoff(retryCount);
+          return this.makeRequest(params, retryCount + 1);
+        }
+        
+        // Handle other HTTP errors
+        console.error('Liquipedia API error:', {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data
+        });
+        throw new Error(`Liquipedia API error: ${error.response.status} ${error.response.statusText}`);
+      }
+      
+      // Handle network errors
+      console.error('Network error:', error.message);
+      throw new Error(`Network error: ${error.message}`);
     }
   }
 
@@ -58,6 +104,14 @@ class LiquipediaService {
    */
   async searchPlayer(playerName) {
     try {
+      // Check cache first
+      const cacheKey = cache.getPlayerSearchKey(playerName);
+      const cachedData = await cache.get(cacheKey);
+      if (cachedData) {
+        console.log('Returning cached player search results');
+        return cachedData;
+      }
+
       const data = await this.makeRequest({
         action: 'opensearch',
         search: playerName,
@@ -65,23 +119,26 @@ class LiquipediaService {
         namespace: 0
       });
       
+      let results = [];
       if (data && Array.isArray(data) && data.length >= 4) {
         const searchTerms = data[0];
         const titles = data[1];
         const descriptions = data[2];
         const urls = data[3];
         
-        return titles.map((title, index) => ({
+        results = titles.map((title, index) => ({
           title,
           description: descriptions[index] || '',
           url: urls[index]
         }));
       }
-      
-      return [];
+
+      // Cache the results
+      await cache.set(cacheKey, results, cache.durations.MEDIUM);
+      return results;
     } catch (error) {
       console.error(`Error searching for player ${playerName}:`, error);
-      return [];
+      throw error;
     }
   }
 
@@ -98,27 +155,52 @@ class LiquipediaService {
         formatversion: 2
       });
 
-      if (!data || !data.parse) {
-        return null;
+      if (!data?.parse?.text) {
+        throw new Error('No page content found');
       }
 
-      // Then get the earnings data specifically
+      // Add a delay between requests
+      await this.respectRateLimit(true);
+
+      // Then get the earnings data
       const earningsData = await this.makeRequest({
         action: 'parse',
         page: title,
         prop: 'text',
-        section: 'Earnings',
+        section: 'Results',
         formatversion: 2
       });
 
-      return {
-        text: data.parse.text,
-        infoboxes: data.parse.infoboxes,
-        earnings: earningsData?.parse?.text || ''
+      // Get tournament history
+      const tournamentData = await this.makeRequest({
+        action: 'parse',
+        page: title,
+        prop: 'text',
+        section: 'Tournament Results',
+        formatversion: 2
+      });
+
+      // Get team history
+      const teamData = await this.makeRequest({
+        action: 'parse',
+        page: title,
+        prop: 'text',
+        section: 'Team History',
+        formatversion: 2
+      });
+
+      const playerData = {
+        ...data,
+        earnings: earningsData,
+        tournament_history: tournamentData,
+        team_history: teamData,
+        source: 'liquipedia'
       };
+
+      return playerData;
     } catch (error) {
       console.error(`Error getting player page for ${title}:`, error);
-      return null;
+      throw error;
     }
   }
 
@@ -393,84 +475,117 @@ class LiquipediaService {
   // Helper methods for data extraction
   _extractEarningsFromPage(pageData) {
     try {
+      const $ = cheerio.load(pageData.parse.text);
       const earnings = {
         total: 0,
-        by_year: {},
         tournaments: []
       };
 
-      // Extract total earnings from infobox
-      const infobox = pageData.infoboxes?.[0] || {};
-      const totalEarnings = infobox['Approx. Total Earnings'];
-      if (totalEarnings) {
-        earnings.total = this._parsePrizeAmount(totalEarnings);
-      }
+      // Find the earnings table
+      const earningsTable = $('.wikitable').filter((i, table) => {
+        return $(table).find('th').text().toLowerCase().includes('earnings');
+      });
 
-      // Parse earnings section
-      const earningsText = pageData.earnings;
-      if (!earningsText) return earnings;
-
-      // Extract earnings by year
-      const yearMatches = earningsText.matchAll(/(\d{4})\s*-\s*\$([\d,]+)/g);
-      for (const match of yearMatches) {
-        const [_, year, amount] = match;
-        earnings.by_year[year] = this._parsePrizeAmount(amount);
-      }
-
-      // Extract tournament earnings
-      const tournamentMatches = earningsText.matchAll(/(\d{4}-\d{2}-\d{2})\s*(\d+[a-z]*)\s*([^$]+)\s*\$([\d,]+)\s*([^$]+)/g);
-      for (const match of tournamentMatches) {
-        const [_, date, placement, tournament, prize, team] = match;
-        earnings.tournaments.push({
-          date,
-          placement,
-          tournament: tournament.trim(),
-          prize: this._parsePrizeAmount(prize),
-          team: team.trim()
+      if (earningsTable.length) {
+        earningsTable.find('tr').each((i, row) => {
+          if (i === 0) return; // Skip header row
+          
+          const cols = $(row).find('td');
+          if (cols.length >= 3) {
+            const tournament = $(cols[0]).text().trim();
+            const placement = $(cols[1]).text().trim();
+            const amount = $(cols[2]).text().trim();
+            
+            if (tournament && amount) {
+              const numericAmount = parseFloat(amount.replace(/[^0-9.]/g, ''));
+              if (!isNaN(numericAmount)) {
+                earnings.tournaments.push({
+                  tournament,
+                  placement,
+                  amount: numericAmount
+                });
+                earnings.total += numericAmount;
+              }
+            }
+          }
         });
       }
 
       return earnings;
     } catch (error) {
       console.error('Error extracting earnings data:', error);
-      return {
-        total: 0,
-        by_year: {},
-        tournaments: []
-      };
+      return null;
     }
   }
 
   _extractTournamentData(pageData) {
     try {
-      const infobox = pageData.infoboxes?.[0] || {};
-      
-      return {
-        name: infobox.name || '',
-        start_date: this._extractDate(infobox, 'Start Date'),
-        end_date: this._extractDate(infobox, 'End Date'),
-        prize_pool: this._extractPrizePool(infobox),
-        region: infobox.region || '',
-        organizer: infobox.organizer || '',
-        type: this._determineTournamentType(infobox),
-        format: this._extractFormat(pageData.format),
-        participants: this._extractParticipants(pageData.participants),
-        status: this._determineStatus(infobox)
-      };
-    } catch (error) {
-      console.error('Error extracting tournament data:', error);
-      return {
-        name: '',
+      const $ = cheerio.load(pageData.parse.text);
+      const tournamentData = {
+        prize_pool: 0,
         start_date: null,
         end_date: null,
-        prize_pool: 0,
-        region: '',
-        organizer: '',
-        type: 'other',
-        format: {},
         participants: [],
-        status: 'upcoming'
+        results: []
       };
+
+      // Extract prize pool
+      const prizePoolText = $('.infobox').find('th:contains("Prize Pool")').next().text();
+      tournamentData.prize_pool = parseFloat(prizePoolText.replace(/[^0-9.]/g, '')) || 0;
+
+      // Extract dates
+      const startDateText = $('.infobox').find('th:contains("Start Date")').next().text();
+      const endDateText = $('.infobox').find('th:contains("End Date")').next().text();
+      tournamentData.start_date = new Date(startDateText);
+      tournamentData.end_date = new Date(endDateText);
+
+      // Extract participants
+      const participantsTable = $('.wikitable').filter((i, table) => {
+        return $(table).find('th').text().toLowerCase().includes('participants');
+      });
+
+      if (participantsTable.length) {
+        participantsTable.find('tr').each((i, row) => {
+          if (i === 0) return; // Skip header row
+          
+          const cols = $(row).find('td');
+          if (cols.length >= 2) {
+            const team = $(cols[0]).text().trim();
+            const region = $(cols[1]).text().trim();
+            
+            if (team) {
+              tournamentData.participants.push({ team, region });
+            }
+          }
+        });
+      }
+
+      // Extract results
+      const resultsTable = $('.wikitable').filter((i, table) => {
+        return $(table).find('th').text().toLowerCase().includes('results');
+      });
+
+      if (resultsTable.length) {
+        resultsTable.find('tr').each((i, row) => {
+          if (i === 0) return; // Skip header row
+          
+          const cols = $(row).find('td');
+          if (cols.length >= 3) {
+            const placement = $(cols[0]).text().trim();
+            const team = $(cols[1]).text().trim();
+            const score = $(cols[2]).text().trim();
+            
+            if (placement && team) {
+              tournamentData.results.push({ placement, team, score });
+            }
+          }
+        });
+      }
+
+      return tournamentData;
+    } catch (error) {
+      console.error('Error extracting tournament data:', error);
+      return null;
     }
   }
 

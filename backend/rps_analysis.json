@@ -1,0 +1,191 @@
+{
+  "timestamp": "2025-03-27T21:46:51.850Z",
+  "results": [
+    {
+      "player": {
+        "name": "TestDuelist",
+        "role": "Duelist",
+        "team": "TSM"
+      },
+      "score": 60,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.5,
+        "acs": 250,
+        "kda": 2,
+        "deaths_per_map": 15,
+        "first_bloods": 2,
+        "utility": {
+          "smokes": 50,
+          "flashes": 50,
+          "recon": 50,
+          "traps": 50,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        },
+        "matches": [],
+        "puuid": "mock-puuid"
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 75,
+        "acs": 50,
+        "kda": 50,
+        "deaths_per_map": 60,
+        "first_bloods": 50,
+        "utility_usage": 50
+      }
+    },
+    {
+      "player": {
+        "name": "TestController",
+        "role": "Controller",
+        "team": "C9"
+      },
+      "score": 60.4,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.2,
+        "acs": 220,
+        "kda": 2.5,
+        "deaths_per_map": 12,
+        "first_bloods": 0,
+        "utility": {
+          "smokes": 80,
+          "flashes": 80,
+          "recon": 80,
+          "traps": 80,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        },
+        "matches": [],
+        "puuid": "mock-puuid"
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 60,
+        "acs": 35,
+        "kda": 75,
+        "deaths_per_map": 72,
+        "first_bloods": 0,
+        "utility_usage": 50
+      }
+    },
+    {
+      "player": {
+        "name": "TestInitiator",
+        "role": "Initiator",
+        "team": "100T"
+      },
+      "score": 56.7,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.3,
+        "acs": 230,
+        "kda": 2.2,
+        "deaths_per_map": 13,
+        "first_bloods": 0,
+        "utility": {
+          "smokes": 75,
+          "flashes": 75,
+          "recon": 75,
+          "traps": 75,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        },
+        "matches": [],
+        "puuid": "mock-puuid"
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 65,
+        "acs": 40,
+        "kda": 60.00000000000001,
+        "deaths_per_map": 77,
+        "first_bloods": 0,
+        "utility_usage": 50
+      }
+    },
+    {
+      "player": {
+        "name": "TestSentinel",
+        "role": "Sentinel",
+        "team": "SEN"
+      },
+      "score": 68.25,
+      "sdiff": 0,
+      "baseStats": {
+        "kd_ratio": 1.1,
+        "acs": 200,
+        "kda": 2.8,
+        "deaths_per_map": 10,
+        "first_bloods": 0,
+        "utility": {
+          "smokes": 90,
+          "flashes": 90,
+          "recon": 90,
+          "traps": 90,
+          "postPlantKills": 0,
+          "flashAssists": 0,
+          "clutches": 0
+        },
+        "matches": [],
+        "puuid": "mock-puuid"
+      },
+      "normalizedMetrics": {
+        "kd_ratio": 55.00000000000001,
+        "acs": 25,
+        "kda": 89.99999999999999,
+        "deaths_per_map": 80,
+        "first_bloods": 0,
+        "utility_usage": 50
+      }
+    }
+  ],
+  "roleStats": {
+    "Duelist": {
+      "averageScore": 60,
+      "averageSDIFF": 0,
+      "medianScore": 60,
+      "medianSDIFF": 0,
+      "minScore": 60,
+      "maxScore": 60,
+      "minSDIFF": 0,
+      "maxSDIFF": 0,
+      "count": 1
+    },
+    "Controller": {
+      "averageScore": 60.4,
+      "averageSDIFF": 0,
+      "medianScore": 60.4,
+      "medianSDIFF": 0,
+      "minScore": 60.4,
+      "maxScore": 60.4,
+      "minSDIFF": 0,
+      "maxSDIFF": 0,
+      "count": 1
+    },
+    "Initiator": {
+      "averageScore": 56.7,
+      "averageSDIFF": 0,
+      "medianScore": 56.7,
+      "medianSDIFF": 0,
+      "minScore": 56.7,
+      "maxScore": 56.7,
+      "minSDIFF": 0,
+      "maxSDIFF": 0,
+      "count": 1
+    },
+    "Sentinel": {
+      "averageScore": 68.25,
+      "averageSDIFF": 0,
+      "medianScore": 68.25,
+      "medianSDIFF": 0,
+      "minScore": 68.25,
+      "maxScore": 68.25,
+      "minSDIFF": 0,
+      "maxSDIFF": 0,
+      "count": 1
+    }
+  }
+}

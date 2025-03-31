@@ -4,6 +4,9 @@ const vlrScraper = require('./vlrScraper.service');
 const db = require('../models');
 const { Op } = require('sequelize');
 const liquipediaService = require('./liquipedia.service');
+const { v4: uuidv4 } = require('uuid');
+const { Worker } = require('worker_threads');
+const path = require('path');
 
 class ScraperScheduler {
   constructor() {
@@ -23,23 +26,28 @@ class ScraperScheduler {
     this.cronJobs = [];
     this.queueProcessorInterval = null;
     this.isProcessing = false;
-    this.scraper = vlrScraper;
+    this.scraper = new vlrScraper(db);
     this.db = db;
+    this.maxWorkers = 5;
+    this.workers = [];
   }
 
   /**
    * Initialize the scheduler
    */
   init() {
-    // Schedule regular data updates
-    this.cronJobs.push(this.scheduleBasicDataUpdate());
-    this.cronJobs.push(this.scheduleDetailedPlayerUpdate());
-    this.cronJobs.push(this.scheduleEarningsUpdates());
-    this.cronJobs.push(this.scheduleTeamUpdate());
-    this.cronJobs.push(this.scheduleTournamentUpdate());
-    
-    // Process queue continuously
-    this.startQueueProcessor();
+    // Only start cron jobs in production
+    if (process.env.NODE_ENV === 'production') {
+      // Schedule regular data updates
+      this.cronJobs.push(this.scheduleBasicDataUpdate());
+      this.cronJobs.push(this.scheduleDetailedPlayerUpdate());
+      this.cronJobs.push(this.scheduleEarningsUpdates());
+      this.cronJobs.push(this.scheduleTeamUpdate());
+      this.cronJobs.push(this.scheduleTournamentUpdate());
+      
+      // Process queue continuously
+      this.startQueueProcessor();
+    }
     
     console.log('Scraper scheduler initialized');
   }
@@ -211,7 +219,7 @@ class ScraperScheduler {
   /**
    * Add a scraping task to the queue
    */
-  addToQueue(task) {
+  async addToQueue(task) {
     // Ensure task has required fields
     if (!task.type) {
       console.error('[Scheduler] Cannot add task to queue: missing type');
@@ -245,6 +253,10 @@ class ScraperScheduler {
       typeDistribution[t.type] = (typeDistribution[t.type] || 0) + 1;
     });
     console.log('[Scheduler] Queue distribution by type:', typeDistribution);
+
+    if (!this.isProcessing) {
+      await this.processQueue();
+    }
   }
 
   /**
@@ -253,7 +265,7 @@ class ScraperScheduler {
   startQueueProcessor() {
     // Process queue every 5 seconds
     this.queueProcessorInterval = setInterval(() => {
-      this.processNextInQueue();
+      this.processQueue();
     }, 5000);
     
     console.log('Queue processor started');
@@ -262,44 +274,16 @@ class ScraperScheduler {
   /**
    * Process the next item in the queue
    */
-  async processNextInQueue() {
-    try {
-      if (this.isProcessing) {
-        console.log('[Scheduler] Already processing a task, skipping');
-        return;
-      }
+  async processQueue() {
+    if (this.isProcessing || this.queue.length === 0) return;
+    
+    this.isProcessing = true;
+    const task = this.queue.shift();
+    await this.processTask(task);
+    this.isProcessing = false;
 
-      const nextTask = await this.queue.shift();
-      if (!nextTask) {
-        console.debug('[Scheduler] No tasks in queue');
-        return;
-      }
-
-      this.isProcessing = true;
-      console.log(`[Scheduler] Processing task: ${nextTask.type}`);
-
-      try {
-        await this.processTask(nextTask);
-
-        // Add delay based on task type
-        const delay = this.getDelayForTaskType(nextTask.type);
-        await new Promise(resolve => setTimeout(resolve, delay));
-
-      } catch (error) {
-        console.error(`[Scheduler] Error processing task: ${error.message}`);
-        if (nextTask.retries < 3) {
-          await this.addToQueue({
-            ...nextTask,
-            priority: nextTask.priority - 1,
-            retries: (nextTask.retries || 0) + 1
-          });
-        }
-      } finally {
-        this.isProcessing = false;
-      }
-    } catch (error) {
-      console.error(`[Scheduler] Error in processNextInQueue: ${error.message}`);
-      this.isProcessing = false;
+    if (this.queue.length > 0) {
+      await this.processQueue();
     }
   }
 
@@ -314,18 +298,33 @@ class ScraperScheduler {
         case 'player_data': {
           const url = `${this.scraper.baseUrl}/stats/players?page=${task.data?.page || 1}`;
           const players = await this.scraper.scrapePlayerList(url);
+          
           if (players.length > 0) {
-            await this.db.Player.bulkCreate(players, {
-              updateOnDuplicate: [
-                'team', 
-                'country', 
-                'stats', 
-                'compatibilityScore',
-                'isFreeAgent',
-                'lastUpdated'
-              ]
+            // Process players in parallel using worker threads
+            const workerPromises = players.map(player => {
+              return new Promise((resolve, reject) => {
+                const worker = new Worker(path.join(__dirname, '../workers/playerScraper.worker.js'), {
+                  workerData: { playerUrl: player.player_url }
+                });
+
+                worker.on('message', (result) => {
+                  if (result.success) {
+                    resolve({ ...player, ...result.data });
+                  } else {
+                    console.error(`Error in worker for ${player.player_name}:`, result.error);
+                    resolve(player); // Resolve with original data on error
+                  }
+                });
+
+                worker.on('error', (error) => {
+                  console.error(`Worker error for ${player.player_name}:`, error);
+                  resolve(player); // Resolve with original data on error
+                });
+              });
             });
-            console.log(`[Scheduler] Saved ${players.length} players`);
+
+            const playersWithDetails = await Promise.all(workerPromises);
+            await this.scraper.savePlayersBatch(playersWithDetails);
           }
           break;
         }
@@ -333,16 +332,7 @@ class ScraperScheduler {
         case 'team_data': {
           const teams = await this.scraper.scrapeTeamList();
           if (teams.length > 0) {
-            await this.db.Team.bulkCreate(teams, {
-              updateOnDuplicate: [
-                'name',
-                'region',
-                'rank',
-                'earnings',
-                'lastUpdated'
-              ]
-            });
-            console.log(`[Scheduler] Saved ${teams.length} teams`);
+            await this.scraper.saveTeamsBatch(teams);
           }
           break;
         }
@@ -350,17 +340,7 @@ class ScraperScheduler {
         case 'tournament_data': {
           const tournaments = await this.scraper.scrapeTournamentList();
           if (tournaments.length > 0) {
-            await this.db.Tournament.bulkCreate(tournaments, {
-              updateOnDuplicate: [
-                'name',
-                'startDate',
-                'endDate',
-                'prizePool',
-                'teams',
-                'status'
-              ]
-            });
-            console.log(`[Scheduler] Saved ${tournaments.length} tournaments`);
+            await this.scraper.saveTournamentsBatch(tournaments);
           }
           break;
         }

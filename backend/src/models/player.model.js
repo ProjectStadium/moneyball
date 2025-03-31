@@ -27,6 +27,7 @@ module.exports = (sequelize) => {
     // Performance metrics
     acs: DataTypes.FLOAT,        // Average Combat Score
     kd_ratio: DataTypes.FLOAT,   // Kill/Death Ratio
+    kast: DataTypes.FLOAT,       // Kill/Assist/Survival/Trade percentage
     adr: DataTypes.FLOAT,        // Average Damage per Round
     kpr: DataTypes.FLOAT,        // Kills per Round
     apr: DataTypes.FLOAT,        // Assists per Round
@@ -34,6 +35,62 @@ module.exports = (sequelize) => {
     fd_pr: DataTypes.FLOAT,      // First Deaths per Round
     hs_pct: DataTypes.FLOAT,     // Headshot Percentage
     rating: DataTypes.FLOAT,     // Overall player rating
+    
+    // Liquipedia-specific stats
+    liquipedia_url: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    liquipedia_stats: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      get() {
+        const value = this.getDataValue('liquipedia_stats');
+        return value ? JSON.parse(value) : null;
+      },
+      set(value) {
+        this.setDataValue('liquipedia_stats', value ? JSON.stringify(value) : null);
+      }
+    },
+    tournament_results: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      get() {
+        const value = this.getDataValue('tournament_results');
+        return value ? JSON.parse(value) : null;
+      },
+      set(value) {
+        this.setDataValue('tournament_results', value ? JSON.stringify(value) : null);
+      }
+    },
+    deaths_per_map: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
+    kills_per_map: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
+    assists_per_map: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
+    acs_per_map: {
+      type: DataTypes.FLOAT,
+      allowNull: true
+    },
+    tournaments_played: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    tournaments_won: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    tournaments_top_4: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
     
     // New fields for enhanced analysis
     agent_usage: {
@@ -49,7 +106,6 @@ module.exports = (sequelize) => {
       },
       set(value) {
         try {
-          // If value is already a string, try to parse it first
           const parsedValue = typeof value === 'string' ? JSON.parse(value) : value;
           this.setDataValue('agent_usage', JSON.stringify(parsedValue));
         } catch (e) {
@@ -60,37 +116,65 @@ module.exports = (sequelize) => {
     },
     playstyle: {
       type: DataTypes.TEXT,      // JSON string with playstyle analysis
-      allowNull: true,
       get() {
         const value = this.getDataValue('playstyle');
-        return value ? JSON.parse(value) : {};
+        try {
+          return value ? JSON.parse(value) : {};
+        } catch (e) {
+          console.error('Error parsing playstyle:', e);
+          return {};
+        }
       },
       set(value) {
-        this.setDataValue('playstyle', JSON.stringify(value));
+        try {
+          const parsedValue = typeof value === 'string' ? JSON.parse(value) : value;
+          this.setDataValue('playstyle', JSON.stringify(parsedValue));
+        } catch (e) {
+          console.error('Error stringifying playstyle:', e);
+          this.setDataValue('playstyle', '{}');
+        }
       }
     },
     division: {
-      type: DataTypes.STRING,    // T1, T2, T3 classification
+      type: DataTypes.ENUM('T1', 'T2', 'T3', 'T4'),
       defaultValue: 'T3',
-      allowNull: true
+      allowNull: false
     },
     division_details: {
       type: DataTypes.TEXT,      // JSON string with division analysis
-      allowNull: true,
       get() {
         const value = this.getDataValue('division_details');
-        return value ? JSON.parse(value) : {
-          current_division: 'T3',
-          consistency_score: 0,  // 0-100, higher means more consistent at their tier
-          tournaments_at_current_division: 0,
-          last_division_change: null,
-          division_history: [],  // Array of past divisions with dates
-          highest_division_achieved: 'T3',
-          notes: null
-        };
+        try {
+          return value ? JSON.parse(value) : {
+            current_division: 'T3',
+            consistency_score: 0,  // 0-100, higher means more consistent at their tier
+            tournaments_at_current_division: 0,
+            last_division_change: null,
+            division_history: [],  // Array of past divisions with dates
+            highest_division_achieved: 'T3',
+            notes: null
+          };
+        } catch (e) {
+          console.error('Error parsing division_details:', e);
+          return {
+            current_division: 'T3',
+            consistency_score: 0,
+            tournaments_at_current_division: 0,
+            last_division_change: null,
+            division_history: [],
+            highest_division_achieved: 'T3',
+            notes: null
+          };
+        }
       },
       set(value) {
-        this.setDataValue('division_details', JSON.stringify(value));
+        try {
+          const parsedValue = typeof value === 'string' ? JSON.parse(value) : value;
+          this.setDataValue('division_details', JSON.stringify(parsedValue));
+        } catch (e) {
+          console.error('Error stringifying division_details:', e);
+          this.setDataValue('division_details', '{}');
+        }
       }
     },
     estimated_value: {
@@ -99,19 +183,29 @@ module.exports = (sequelize) => {
     },
     tournament_history: {
       type: DataTypes.TEXT,      // JSON string of tournament participation
-      allowNull: true,
       get() {
         const value = this.getDataValue('tournament_history');
-        return value ? JSON.parse(value) : [];
+        try {
+          return value ? JSON.parse(value) : [];
+        } catch (e) {
+          console.error('Error parsing tournament_history:', e);
+          return [];
+        }
       },
       set(value) {
-        this.setDataValue('tournament_history', JSON.stringify(value));
+        try {
+          const parsedValue = typeof value === 'string' ? JSON.parse(value) : value;
+          this.setDataValue('tournament_history', JSON.stringify(parsedValue));
+        } catch (e) {
+          console.error('Error stringifying tournament_history:', e);
+          this.setDataValue('tournament_history', '[]');
+        }
       }
     },
     last_updated: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
-      allowNull: true
+      allowNull: false
     },
 
     // Earnings and contracts
@@ -124,21 +218,31 @@ module.exports = (sequelize) => {
       allowNull: true,
       get() {
         const value = this.getDataValue('earnings_by_year');
-        return value ? JSON.parse(value) : {};
+        return value ? JSON.parse(value) : null;
       },
       set(value) {
-        this.setDataValue('earnings_by_year', JSON.stringify(value));
+        this.setDataValue('earnings_by_year', value ? JSON.stringify(value) : null);
       }
     },
     tournament_earnings: {
       type: DataTypes.TEXT,
-      allowNull: true,
       get() {
         const value = this.getDataValue('tournament_earnings');
-        return value ? JSON.parse(value) : [];
+        try {
+          return value ? JSON.parse(value) : [];
+        } catch (e) {
+          console.error('Error parsing tournament_earnings:', e);
+          return [];
+        }
       },
       set(value) {
-        this.setDataValue('tournament_earnings', JSON.stringify(value));
+        try {
+          const parsedValue = typeof value === 'string' ? JSON.parse(value) : value;
+          this.setDataValue('tournament_earnings', JSON.stringify(parsedValue));
+        } catch (e) {
+          console.error('Error stringifying tournament_earnings:', e);
+          this.setDataValue('tournament_earnings', '[]');
+        }
       }
     },
     earnings_last_updated: {
@@ -148,11 +252,11 @@ module.exports = (sequelize) => {
     
     // Additional fields
     source: {
-      type: DataTypes.STRING,    // Data source (e.g., "VLR")
+      type: DataTypes.STRING,    // Data source (e.g., "VLR", "Liquipedia")
       allowNull: true
     },
     current_act: {
-      type: DataTypes.STRING, // Current Valorant Act/Season
+      type: DataTypes.STRING,    // Current Valorant Act/Season
       allowNull: true
     },
     leaderboard_rank: {
@@ -165,7 +269,19 @@ module.exports = (sequelize) => {
     },
     number_of_wins: {
       type: DataTypes.INTEGER,
-      allowNull: true
+      allowNull: true,
+      defaultValue: 0
+    },
+    team_history: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      get() {
+        const value = this.getDataValue('team_history');
+        return value ? JSON.parse(value) : null;
+      },
+      set(value) {
+        this.setDataValue('team_history', value ? JSON.stringify(value) : null);
+      }
     }
   }, {
     tableName: 'players',
@@ -184,9 +300,26 @@ module.exports = (sequelize) => {
       { fields: ['is_free_agent'] },
       { fields: ['country_code'] },
       { fields: ['division'] },
-      { fields: ['estimated_value'] }
+      { fields: ['estimated_value'] },
+      { fields: ['liquipedia_url'] }
     ]
   });
+
+  // Define associations
+  Player.associate = (models) => {
+    Player.hasMany(models.PlayerMatch, {
+      foreignKey: 'player_id',
+      as: 'player_matches'
+    });
+    Player.hasMany(models.Earnings, {
+      foreignKey: 'player_id',
+      as: 'earnings'
+    });
+    Player.hasMany(models.PlayerTournamentHistory, {
+      foreignKey: 'player_id',
+      as: 'tournament_entries'
+    });
+  };
 
   return Player;
 };

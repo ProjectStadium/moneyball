@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const db = require('./models');
+require('./jobs/liquipediaUpdateJob');  // Add this line to start the cron job
 
 // Initialize Express
 const app = express();

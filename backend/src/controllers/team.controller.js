@@ -14,10 +14,10 @@ exports.getTeams = async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
-    const { region, game, country } = req.query;
+    const { region } = req.query;
 
     // Create cache key based on query parameters
-    const cacheKey = `teams_${page}_${limit}_${region || 'all'}_${game || 'all'}_${country || 'all'}`;
+    const cacheKey = `teams_${page}_${limit}_${region || 'all'}`;
 
     // Check cache first
     const cachedData = cache.get(cacheKey);
@@ -28,8 +28,6 @@ exports.getTeams = async (req, res) => {
     // Build where clause
     const where = {};
     if (region) where.region = region;
-    if (game) where.game = game;
-    if (country) where.country = country;
 
     // Get teams with pagination
     const { count, rows } = await Team.findAndCountAll({
@@ -38,9 +36,9 @@ exports.getTeams = async (req, res) => {
       offset,
       order: [['rank', 'ASC']],
       attributes: [
-        'id', 'team_abbreviation', 'full_team_name', 'tag', 'region',
-        'country', 'country_code', 'rank', 'score', 'record',
-        'earnings', 'founded_year', 'game', 'logo_url'
+        'id', 'team_abbreviation', 'full_team_name', 'team_url', 'region',
+        'rank', 'rating', 'earnings', 'roster_size', 'logo_url',
+        'social_media', 'last_updated'
       ]
     });
 
@@ -271,7 +269,10 @@ exports.getStats = async (req, res) => {
       average_rating: players.reduce((acc, p) => acc + (p.rating || 0), 0) / players.length,
       average_acs: players.reduce((acc, p) => acc + (p.acs || 0), 0) / players.length,
       total_earnings: team.earnings || 0,
-      win_rate: team.record ? parseFloat(team.record.split('-')[0]) / parseFloat(team.record.split('-')[1]) : 0
+      roster_size: team.roster_size || players.length,
+      region: team.region,
+      rank: team.rank,
+      team_rating: team.rating
     };
 
     res.json(stats);
@@ -293,8 +294,7 @@ exports.searchTeams = async (req, res) => {
       where: {
         [Op.or]: [
           { full_team_name: { [Op.iLike]: `%${query}%` } },
-          { team_abbreviation: { [Op.iLike]: `%${query}%` } },
-          { tag: { [Op.iLike]: `%${query}%` } }
+          { team_abbreviation: { [Op.iLike]: `%${query}%` } }
         ]
       },
       limit: 10

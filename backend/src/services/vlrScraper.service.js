@@ -2,9 +2,14 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const db = require('../models');
 const { v4: uuidv4 } = require('uuid');
+const Redis = require('ioredis');
+const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
+const puppeteer = require('puppeteer');
 
 class VLRScraper {
-  constructor() {
+  constructor(db, instanceId = uuidv4()) {
+    this.db = db;
+    this.instanceId = instanceId;
     this.baseUrl = 'https://www.vlr.gg';
     this.statsUrl = 'https://www.vlr.gg/stats';
     this.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
@@ -14,37 +19,108 @@ class VLRScraper {
       'Accept-Language': 'en-US,en;q=0.5',
       'Connection': 'keep-alive',
     };
-    this.db = db;
+    this.redis = new Redis({
+      host: '172.24.18.79',  // WSL Redis IP
+      port: 6379,
+      retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      }
+    });
+    this.rateLimitDelay = 1000; // 1 second between requests
+    this.maxConcurrentRequests = 5;
+    this.proxyList = [
+      // Add your proxy list here
+      // Format: { host: 'proxy.example.com', port: 8080 }
+    ];
+    this.currentProxyIndex = 0;
+    this.isActive = true;
+
+    this.Player = db.Player;
+    this.Team = db.Team;
+    this.Tournament = db.Tournament;
+    this.Match = db.Match;
+    this.PlayerMatch = db.PlayerMatch;
+
+    // Redis connection events
+    this.redis.on('connect', () => {
+      console.log(`[Scraper ${this.instanceId}] Connected to Redis`);
+      this.registerInstance();
+    });
+
+    this.redis.on('error', (err) => {
+      console.error(`[Scraper ${this.instanceId}] Redis connection error:`, err);
+    });
+
+    // Cleanup on process exit
+    process.on('SIGINT', () => this.cleanup());
+    process.on('SIGTERM', () => this.cleanup());
+  }
+
+  async registerInstance() {
+    const key = `scraper:instances:${this.instanceId}`;
+    await this.redis.set(key, JSON.stringify({
+      id: this.instanceId,
+      lastActive: Date.now(),
+      status: 'active'
+    }));
+    await this.redis.expire(key, 30); // Expire after 30 seconds if not refreshed
+  }
+
+  async refreshInstance() {
+    if (!this.isActive) return;
+    const key = `scraper:instances:${this.instanceId}`;
+    await this.redis.set(key, JSON.stringify({
+      id: this.instanceId,
+      lastActive: Date.now(),
+      status: 'active'
+    }));
+    await this.redis.expire(key, 30);
+  }
+
+  async cleanup() {
+    this.isActive = false;
+    const key = `scraper:instances:${this.instanceId}`;
+    await this.redis.del(key);
+    await this.redis.quit();
+  }
+
+  async getActiveInstances() {
+    const keys = await this.redis.keys('scraper:instances:*');
+    const instances = await Promise.all(
+      keys.map(async (key) => {
+        const data = await this.redis.get(key);
+        return data ? JSON.parse(data) : null;
+      })
+    );
+    return instances.filter(instance => instance && instance.status === 'active');
+  }
+
+  async getNextProxy() {
+    if (this.proxyList.length === 0) return null;
+    const proxy = this.proxyList[this.currentProxyIndex];
+    this.currentProxyIndex = (this.currentProxyIndex + 1) % this.proxyList.length;
+    return proxy;
   }
 
   async makeRequest(url, retries = 3) {
     for (let i = 0; i < retries; i++) {
       try {
-        console.log(`Making request to ${url}...`);
-        const response = await axios.get(url, { headers: this.headers });
-        console.log(`Response status: ${response.status}`);
-        return response.data;
+        const proxy = await this.getNextProxy();
+        const config = {
+          headers: {
+            'User-Agent': this.userAgent
+          },
+          timeout: 10000,
+          ...(proxy && { proxy })
+        };
+
+        const response = await axios.get(url, config);
+        await new Promise(resolve => setTimeout(resolve, this.rateLimitDelay));
+        return response;
       } catch (error) {
-        console.error(`Error making request to ${url}:`, error.message);
         if (i === retries - 1) throw error;
-        
-        if (error.response) {
-          if (error.response.status === 429) {
-            const waitTime = 5000 * (i + 1);
-            console.log(`Rate limited. Waiting ${waitTime}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-          } else if (error.response.status === 503) {
-            const waitTime = 3000 * (i + 1);
-            console.log(`Service unavailable. Waiting ${waitTime}ms before retry...`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-          } else {
-            throw error;
-          }
-        } else {
-          const waitTime = 2000 * (i + 1);
-          console.log(`Network error. Waiting ${waitTime}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
+        await new Promise(resolve => setTimeout(resolve, 2000 * (i + 1)));
       }
     }
   }
@@ -89,11 +165,17 @@ class VLRScraper {
   }
 
   async scrapePlayerList(page = 1) {
+    const cacheKey = `player_list:${page}`;
+    const cachedData = await this.redis.get(cacheKey);
+    if (cachedData) {
+      return JSON.parse(cachedData);
+    }
+
     try {
       const url = `${this.statsUrl}/?page=${page}`;
       console.log(`Scraping player list from ${url}...`);
-      const html = await this.makeRequest(url);
-      const $ = cheerio.load(html);
+      const response = await this.makeRequest(url);
+      const $ = cheerio.load(response.data);
       const players = [];
 
       // Find the stats table
@@ -179,6 +261,7 @@ class VLRScraper {
       });
 
       console.log(`Found ${players.length} players on page ${page}`);
+      await this.redis.setex(cacheKey, 3600, JSON.stringify(players)); // Cache for 1 hour
       return players;
     } catch (error) {
       console.error('Error scraping player list:', error);
@@ -187,74 +270,70 @@ class VLRScraper {
   }
 
   async scrapeAllPlayers() {
-    try {
-      let page = 1;
-      let hasMorePages = true;
+    const totalPages = 10;
+    const batchSize = 5;
+    const allPlayers = [];
 
-      while (hasMorePages) {
-        console.log(`Scraping page ${page}...`);
-        const players = await this.scrapePlayerList(page);
-        
-        if (players.length === 0) {
-          hasMorePages = false;
-          continue;
-        }
+    // Get active instances
+    const instances = await this.getActiveInstances();
+    const instanceCount = instances.length;
+    const instanceIndex = instances.findIndex(i => i.id === this.instanceId);
 
-        console.log(`Found ${players.length} players on page ${page}`);
+    // Calculate page range for this instance
+    const pagesPerInstance = Math.ceil(totalPages / instanceCount);
+    const startPage = instanceIndex * pagesPerInstance + 1;
+    const endPage = Math.min(startPage + pagesPerInstance - 1, totalPages);
 
-        for (const playerData of players) {
-          try {
-            const playerToSave = {
-              id: uuidv4(),
-              name: playerData.player_name || 'Unknown',
-              full_identifier: playerData.player_url,
-              player_img_url: null,
-              team_name: playerData.team_name || null,
-              team_abbreviation: playerData.team_abbr || null,
-              team_logo_url: null,
-              country_name: playerData.player_flag_title || null,
-              country_code: playerData.country_code || null,
-              is_free_agent: !playerData.team_name,
-              acs: parseFloat(playerData.acs) || null,
-              kd_ratio: parseFloat(playerData.kd_ratio) || null,
-              adr: parseFloat(playerData.adr) || null,
-              kpr: parseFloat(playerData.kpr) || null,
-              apr: parseFloat(playerData.apr) || null,
-              fk_pr: parseFloat(playerData.fk_pr) || null,
-              fd_pr: parseFloat(playerData.fd_pr) || null,
-              hs_pct: parseFloat(playerData.hs_pct) || null,
-              rating: parseFloat(playerData.rating) || null,
-              agent_usage: playerData.agents || {},  // Let Sequelize handle the JSON conversion
-              division: 'T3', // Default until we get division data from Liquipedia
-              last_updated: new Date(),
-              source: 'VLR'
-            };
+    console.log(`[Scraper ${this.instanceId}] Processing pages ${startPage} to ${endPage}`);
 
-            try {
-              await this.db.Player.create(playerToSave);
-              console.log(`Successfully saved player: ${playerData.player_name}`);
-            } catch (error) {
-              if (error.name === 'SequelizeUniqueConstraintError') {
-                console.log(`Player ${playerData.player_name} already exists, skipping...`);
-              } else if (error.name === 'SequelizeValidationError') {
-                console.error(`Validation error for player ${playerData.player_name}:`, error.errors.map(e => e.message));
-              } else {
-                console.error(`Error saving player ${playerData.player_name}:`, error.message);
-              }
-            }
-          } catch (error) {
-            console.error(`Error saving player data: ${error.message}`);
+    for (let page = startPage; page <= endPage; page += batchSize) {
+      // Refresh instance status
+      await this.refreshInstance();
+
+      const pagePromises = [];
+      for (let i = 0; i < batchSize && page + i <= endPage; i++) {
+        const url = `${this.statsUrl}/?page=${page + i}`;
+        pagePromises.push(this.scrapePlayerList(page + i));
+      }
+
+      const results = await Promise.all(pagePromises);
+      allPlayers.push(...results.flat());
+
+      // Process players in parallel with rate limiting
+      const playerDetailsPromises = [];
+      for (const player of results.flat()) {
+        if (player.player_url) {
+          // Check if player is already being processed
+          const processingKey = `player:processing:${player.player_url}`;
+          const isProcessing = await this.redis.get(processingKey);
+          
+          if (!isProcessing) {
+            // Mark player as being processed
+            await this.redis.setex(processingKey, 300, this.instanceId); // 5 minute timeout
+            
+            playerDetailsPromises.push(
+              this.scrapePlayerDetails(player.player_url)
+                .then(details => ({ ...player, ...details }))
+                .catch(error => {
+                  console.error(`[Scraper ${this.instanceId}] Error fetching details for ${player.player_name}:`, error.message);
+                  return player;
+                })
+                .finally(async () => {
+                  // Remove processing flag
+                  await this.redis.del(processingKey);
+                })
+            );
           }
         }
-
-        // Add a delay between pages to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        page++;
       }
-    } catch (error) {
-      console.error('Error in scrapeAllPlayers:', error);
-      throw error;
+
+      const playersWithDetails = await Promise.all(playerDetailsPromises);
+      
+      // Bulk save players
+      await this.savePlayersBatch(playersWithDetails);
     }
+
+    return allPlayers;
   }
 
   async scrapeTeamList() {
@@ -385,20 +464,29 @@ class VLRScraper {
   }
 
   async scrapePlayerDetails(playerUrl) {
+    const cacheKey = `player_details:${playerUrl}`;
+    const cachedData = await this.redis.get(cacheKey);
+    if (cachedData) {
+      return JSON.parse(cachedData);
+    }
+
     try {
-      const url = `${this.baseUrl}${playerUrl}`;
+      // Remove the base URL if it's already in the playerUrl
+      const url = playerUrl.startsWith('http') ? playerUrl : `${this.baseUrl}${playerUrl}`;
       console.log(`Scraping player details from ${url}...`);
-      const html = await this.makeRequest(url);
-      const $ = cheerio.load(html);
+      const response = await this.makeRequest(url);
+      const $ = cheerio.load(response.data);
       
       const playerData = {
         agent_usage: this.extractAgentUsage($),
         playstyle: this.extractPlaystyle($),
         division: this.extractDivision($),
         achievements: this.extractAchievements($),
+        recent_matches: this.extractRecentMatches($),
         lastUpdated: new Date()
       };
 
+      await this.redis.setex(cacheKey, 3600, JSON.stringify(playerData));
       return playerData;
     } catch (error) {
       console.error('Error scraping player details:', error);
@@ -515,6 +603,48 @@ class VLRScraper {
     });
     return achievements;
   }
+
+  async savePlayersBatch(players) {
+    const batchSize = 50;
+    for (let i = 0; i < players.length; i += batchSize) {
+      const batch = players.slice(i, i + batchSize);
+      const operations = batch.map(player => {
+        const playerData = {
+          id: uuidv4(),
+          name: player.player_name,
+          full_identifier: player.player_url,
+          player_img_url: null,
+          team_name: player.team_name,
+          team_abbreviation: player.team_abbr,
+          team_logo_url: null,
+          country_name: player.player_flag_title,
+          country_code: player.country_code,
+          is_free_agent: !player.team_name,
+          acs: parseFloat(player.acs) || null,
+          kd_ratio: parseFloat(player.kd_ratio) || null,
+          adr: parseFloat(player.adr) || null,
+          kpr: parseFloat(player.kpr) || null,
+          apr: parseFloat(player.apr) || null,
+          fk_pr: parseFloat(player.fk_pr) || null,
+          fd_pr: parseFloat(player.fd_pr) || null,
+          hs_pct: parseFloat(player.hs_pct) || null,
+          rating: parseFloat(player.rating) || null,
+          agent_usage: JSON.stringify(player.agent_usage || {}),
+          playstyle: JSON.stringify(player.playstyle || {}),
+          division: player.division || 'T3',
+          last_updated: new Date(),
+          source: 'VLR'
+        };
+
+        return this.db.Player.upsert(playerData, {
+          where: { name: player.player_name },
+          returning: true
+        });
+      });
+
+      await Promise.all(operations);
+    }
+  }
 }
 
-module.exports = new VLRScraper(); 
+module.exports = VLRScraper; 

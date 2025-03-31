@@ -1,0 +1,101 @@
+{
+  "timestamp": "2025-03-27T23:49:53.808Z",
+  "players": [
+    {
+      "name": "madv",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "breach",
+        "tejo",
+        "kayo"
+      ]
+    },
+    {
+      "name": "Mephisto",
+      "role": "Duelist",
+      "team": "",
+      "agents": [
+        "neon",
+        "yoru",
+        "jett"
+      ]
+    },
+    {
+      "name": "babytz",
+      "role": "Controller",
+      "team": "",
+      "agents": [
+        "viper",
+        "cypher",
+        "vyse"
+      ]
+    },
+    {
+      "name": "siraphop",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "tejo"
+      ]
+    },
+    {
+      "name": "thyy",
+      "role": "Controller",
+      "team": "",
+      "agents": [
+        "astra",
+        "brimstone",
+        "omen"
+      ]
+    },
+    {
+      "name": "niffy",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "vyse",
+        "cypher"
+      ]
+    },
+    {
+      "name": "ComeBack",
+      "role": "Duelist",
+      "team": "",
+      "agents": [
+        "neon",
+        "jett"
+      ]
+    },
+    {
+      "name": "StarBound",
+      "role": "Sentinel",
+      "team": "",
+      "agents": [
+        "chamber",
+        "iso"
+      ]
+    },
+    {
+      "name": "Sayonara",
+      "role": "Initiator",
+      "team": "",
+      "agents": [
+        "tejo",
+        "fade",
+        "vyse"
+      ]
+    },
+    {
+      "name": "canezerra",
+      "role": "Duelist",
+      "team": "",
+      "agents": [
+        "raze",
+        "iso",
+        "clove"
+      ]
+    }
+  ],
+  "roleStats": []
+}

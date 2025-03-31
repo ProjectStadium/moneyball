@@ -3,38 +3,63 @@ const axios = require('axios');
 const db = require('../models');
 const { Op } = require('sequelize');
 const { Tournament } = db;
+const cache = require('./cache.service');
+const cheerio = require('cheerio');
 
 class LiquipediaService {
   constructor() {
+    this.Player = db.Player;
+    this.Team = db.Team;
+    this.Tournament = db.Tournament;
+    this.Earnings = db.Earnings;
     this.baseUrl = 'https://liquipedia.net/valorant/api.php';
-    this.userAgent = 'Moneyball Valorant Analytics Tool/1.0 (contact@yourdomainhere.com)';
+    this.userAgent = 'Moneyball Valorant Analytics Tool/1.0 (https://winrvte.com; contact@winrvte.com)';
     this.headers = {
       'User-Agent': this.userAgent,
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'Accept-Encoding': 'gzip'
     };
     this.lastRequestTime = 0;
-    this.requestDelay = 2000; // 2 seconds between requests
+    this.lastParseRequestTime = 0;
+    this.generalDelay = 2000; // 2 seconds between general requests
+    this.parseDelay = 30000;  // 30 seconds between parse requests
+    this.maxRetries = 3;
   }
 
   /**
    * Ensure we respect the rate limits
    */
-  async respectRateLimit() {
+  async respectRateLimit(isParseRequest = false) {
     const now = Date.now();
-    const timeSinceLastRequest = now - this.lastRequestTime;
+    const delay = isParseRequest ? this.parseDelay : this.generalDelay;
+    const lastRequestTime = isParseRequest ? this.lastParseRequestTime : this.lastRequestTime;
+    const timeSinceLastRequest = now - lastRequestTime;
     
-    if (timeSinceLastRequest < this.requestDelay) {
-      await new Promise(resolve => setTimeout(resolve, this.requestDelay - timeSinceLastRequest));
+    if (timeSinceLastRequest < delay) {
+      await new Promise(resolve => setTimeout(resolve, delay - timeSinceLastRequest));
     }
     
-    this.lastRequestTime = Date.now();
+    if (isParseRequest) {
+      this.lastParseRequestTime = Date.now();
+    } else {
+      this.lastRequestTime = Date.now();
+    }
   }
 
   /**
-   * Make a request to the Liquipedia API
+   * Exponential backoff delay
    */
-  async makeRequest(params) {
-    await this.respectRateLimit();
+  async backoff(attempt) {
+    const delay = this.generalDelay * Math.pow(2, attempt);
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+
+  /**
+   * Make a request to the Liquipedia API with retry logic
+   */
+  async makeRequest(params, retryCount = 0) {
+    const isParseRequest = params.action === 'parse';
+    await this.respectRateLimit(isParseRequest);
     
     try {
       const response = await axios.get(this.baseUrl, {
@@ -48,7 +73,17 @@ class LiquipediaService {
       
       return response.data;
     } catch (error) {
+      if (error.response && error.response.status === 429 && retryCount < this.maxRetries) {
+        console.log(`Rate limit hit, retrying after backoff (attempt ${retryCount + 1}/${this.maxRetries})`);
+        await this.backoff(retryCount);
+        return this.makeRequest(params, retryCount + 1);
+      }
+      
       console.error('Error making API request:', error.message);
+      if (error.response) {
+        console.error('Response status:', error.response.status);
+        console.error('Response headers:', error.response.headers);
+      }
       throw error;
     }
   }
@@ -58,6 +93,14 @@ class LiquipediaService {
    */
   async searchPlayer(playerName) {
     try {
+      // Check cache first
+      const cacheKey = cache.getPlayerSearchKey(playerName);
+      const cachedData = await cache.get(cacheKey);
+      if (cachedData) {
+        console.log('Returning cached player search results');
+        return cachedData;
+      }
+
       const data = await this.makeRequest({
         action: 'opensearch',
         search: playerName,
@@ -65,20 +108,23 @@ class LiquipediaService {
         namespace: 0
       });
       
+      let results = [];
       if (data && Array.isArray(data) && data.length >= 4) {
         const searchTerms = data[0];
         const titles = data[1];
         const descriptions = data[2];
         const urls = data[3];
         
-        return titles.map((title, index) => ({
+        results = titles.map((title, index) => ({
           title,
           description: descriptions[index] || '',
           url: urls[index]
         }));
       }
-      
-      return [];
+
+      // Cache the results
+      await cache.set(cacheKey, results, cache.durations.MEDIUM);
+      return results;
     } catch (error) {
       console.error(`Error searching for player ${playerName}:`, error);
       return [];
@@ -98,98 +144,65 @@ class LiquipediaService {
         formatversion: 2
       });
 
-      if (!data || !data.parse) {
-        return null;
-      }
+      // Add a delay between requests
+      await this.respectRateLimit(true);
 
-      // Then get the earnings data specifically
+      // Then get the earnings data
       const earningsData = await this.makeRequest({
         action: 'parse',
         page: title,
         prop: 'text',
-        section: 'Earnings',
+        section: 'Results',
         formatversion: 2
       });
 
-      return {
-        text: data.parse.text,
-        infoboxes: data.parse.infoboxes,
-        earnings: earningsData?.parse?.text || ''
-      };
-    } catch (error) {
-      console.error(`Error getting player page for ${title}:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Get tournament page content with specific sections
-   */
-  async getTournamentPage(title) {
-    try {
-      // Get main page content with infoboxes
-      const data = await this.makeRequest({
+      // Get tournament history
+      const tournamentData = await this.makeRequest({
         action: 'parse',
         page: title,
-        prop: 'text|infoboxes',
+        prop: 'text',
+        section: 'Tournament Results',
         formatversion: 2
       });
 
-      if (!data || !data.parse) {
-        return null;
-      }
+      // Get team history
+      const teamData = await this.makeRequest({
+        action: 'parse',
+        page: title,
+        prop: 'text',
+        section: 'Team History',
+        formatversion: 2
+      });
 
-      // Get specific sections we need
-      const sections = await Promise.all([
-        this.makeRequest({
-          action: 'parse',
-          page: title,
-          prop: 'text',
-          section: 'Format',
-          formatversion: 2
-        }),
-        this.makeRequest({
-          action: 'parse',
-          page: title,
-          prop: 'text',
-          section: 'Participants',
-          formatversion: 2
-        }),
-        this.makeRequest({
-          action: 'parse',
-          page: title,
-          prop: 'text',
-          section: 'Results',
-          formatversion: 2
-        })
-      ]);
-
-      return {
-        text: data.parse.text,
-        infoboxes: data.parse.infoboxes,
-        format: sections[0]?.parse?.text || '',
-        participants: sections[1]?.parse?.text || '',
-        results: sections[2]?.parse?.text || ''
+      const playerData = {
+        ...data,
+        earnings: earningsData,
+        tournament_history: tournamentData,
+        team_history: teamData,
+        source: 'liquipedia'
       };
+
+      return playerData;
     } catch (error) {
-      console.error(`Error getting tournament page for ${title}:`, error);
-      return null;
+      console.error(`Error getting player page for ${title}:`, error);
+      throw error;
     }
   }
 
   /**
-   * Get list of tournaments with filtering options
+   * Get tournament list with pagination
    */
-  async getTournamentList(options = {}) {
+  async getTournamentList({ limit = 5, offset = 0 } = {}) {
     try {
-      const {
-        limit = 50,
-        offset = 0,
-        status = 'all', // all, upcoming, ongoing, completed
-        region = 'all'
-      } = options;
+      // Check cache first
+      const cacheKey = cache.getTournamentListKey(limit, offset);
+      const cachedData = await cache.get(cacheKey);
+      if (cachedData) {
+        console.log('Returning cached tournament list');
+        return cachedData;
+      }
 
-      // First get all tournaments in the category
+      console.log('Fetching tournament list...');
       const data = await this.makeRequest({
         action: 'query',
         list: 'categorymembers',
@@ -199,39 +212,86 @@ class LiquipediaService {
         cmprop: 'title|timestamp'
       });
 
-      if (!data?.query?.categorymembers) {
-        return [];
+      console.log('Tournament API response:', JSON.stringify(data, null, 2));
+
+      let tournaments = [];
+      if (data && data.query && data.query.categorymembers) {
+        tournaments = data.query.categorymembers.map(tournament => ({
+          title: tournament.title,
+          timestamp: tournament.timestamp,
+          url: `https://liquipedia.net/valorant/${encodeURIComponent(tournament.title)}`
+        }));
       }
 
-      // Filter tournaments based on status and region if specified
-      const tournaments = await Promise.all(
-        data.query.categorymembers.map(async (tournament) => {
-          const tournamentData = await this.getTournamentPage(tournament.title);
-          if (!tournamentData) return null;
-
-          const infobox = tournamentData.infoboxes?.[0] || {};
-          const tournamentStatus = this._determineStatus(infobox);
-          const tournamentRegion = infobox.region || 'Unknown';
-
-          if (status !== 'all' && tournamentStatus !== status) return null;
-          if (region !== 'all' && tournamentRegion !== region) return null;
-
-          return {
-            title: tournament.title,
-            timestamp: tournament.timestamp,
-            status: tournamentStatus,
-            region: tournamentRegion,
-            prize_pool: this._extractPrizePool(infobox),
-            start_date: this._extractDate(infobox, 'Start Date'),
-            end_date: this._extractDate(infobox, 'End Date')
-          };
-        })
-      );
-
-      return tournaments.filter(Boolean);
+      // Cache the results
+      await cache.set(cacheKey, tournaments, cache.durations.MEDIUM);
+      return tournaments;
     } catch (error) {
       console.error('Error getting tournament list:', error);
+      if (error.response) {
+        console.error('Response data:', error.response.data);
+        console.error('Response status:', error.response.status);
+      }
       return [];
+    }
+  }
+
+  /**
+   * Get tournament page content
+   */
+  async getTournamentPage(title) {
+    try {
+      const data = await this.makeRequest({
+        action: 'parse',
+        page: title,
+        prop: 'text',
+        section: 'Participants',
+        formatversion: 2
+      });
+
+      return data;
+    } catch (error) {
+      console.error(`Error getting tournament page for ${title}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get player match history
+   */
+  async getPlayerMatches(playerName) {
+    try {
+      const data = await this.makeRequest({
+        action: 'parse',
+        page: `${playerName}/Matches`,
+        prop: 'text',
+        formatversion: 2
+      });
+
+      return data;
+    } catch (error) {
+      console.error(`Error getting matches for player ${playerName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get player team history
+   */
+  async getPlayerTeams(playerName) {
+    try {
+      const data = await this.makeRequest({
+        action: 'parse',
+        page: playerName,
+        prop: 'text',
+        section: 'Teams',
+        formatversion: 2
+      });
+
+      return data;
+    } catch (error) {
+      console.error(`Error getting teams for player ${playerName}:`, error);
+      throw error;
     }
   }
 
@@ -390,6 +450,237 @@ class LiquipediaService {
     }
   }
 
+  /**
+   * Get tournament statistics
+   */
+  async getTournamentStats(title) {
+    try {
+      // Format the title to match Liquipedia's format
+      const formattedTitle = title.replace(/_/g, ' ');
+      
+      // Get the statistics page content
+      const statsData = await this.makeRequest({
+        action: 'parse',
+        page: `${formattedTitle}/Statistics`,
+        prop: 'text',
+        format: 'json',
+        formatversion: 2
+      });
+
+      if (!statsData.parse?.text) {
+        throw new Error('No statistics page found for this tournament');
+      }
+
+      const content = statsData.parse.text;
+      console.log('Raw content:', content.substring(0, 1000));
+
+      // Parse player statistics directly from the HTML table
+      const playerStats = await this._parsePlayerStats(content);
+      console.log(`Found ${playerStats.length} player statistics`);
+
+      // Parse map statistics
+      const mapStats = this._parseMapStats(content);
+      console.log('Map statistics:', {
+        picked: Object.keys(mapStats.maps_picked).length,
+        banned: Object.keys(mapStats.maps_banned).length
+      });
+
+      return {
+        tournament: formattedTitle,
+        player_statistics: playerStats,
+        map_statistics: mapStats
+      };
+    } catch (error) {
+      console.error(`Error getting tournament statistics for ${title}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Parse player statistics from the content
+   */
+  async _parsePlayerStats(content) {
+    const stats = [];
+    
+    // Look for the player statistics table in HTML format
+    const tableRegex = /<table class="wikitable[^"]*"[^>]*>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/;
+    const tableMatch = content.match(tableRegex);
+    
+    if (!tableMatch) {
+      console.log('No player statistics table found in content');
+      // Log a sample of the content to debug
+      console.log('Content sample:', content.substring(0, 500));
+      return stats;
+    }
+
+    const rows = tableMatch[1].split('</tr>');
+    for (const row of rows) {
+      if (!row.trim() || row.includes('th>')) continue;
+      
+      // Extract player name and flag from the block-player div
+      const playerMatch = row.match(/<div class="block-player">[\s\S]*?<span class="name"[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/);
+      const playerName = playerMatch ? playerMatch[1] : '';
+      
+      // Extract team name from the team-template-team-icon
+      const teamMatch = row.match(/<span data-highlightingclass="([^"]*)" class="team-template-team-icon"/);
+      const team = teamMatch ? teamMatch[1] : '';
+      
+      // Extract agent icons
+      const agentMatches = row.match(/<a href="\/valorant\/[^"]*" title="([^"]*)">/g)?.map(agent => {
+        const titleMatch = agent.match(/title="([^"]*)"/);
+        return titleMatch ? titleMatch[1] : '';
+      }).filter(agent => !agent.includes('Team')) || [];
+      
+      // Extract all numeric values
+      const numericValues = row.match(/>(\d+(?:\.\d+)?)</g)?.map(val => val.replace(/[><]/g, '')) || [];
+      
+      if (numericValues.length >= 10 && playerName) {
+        const [rank, maps, kills, deaths, assists, kd, kda, acsPerMap, killsPerMap, deathsPerMap, assistsPerMap] = numericValues;
+        
+        stats.push({
+          rank: parseInt(rank),
+          player: playerName,
+          team: team,
+          agents: agentMatches,
+          maps: parseInt(maps),
+          kills: parseInt(kills),
+          deaths: parseInt(deaths),
+          assists: parseInt(assists),
+          kd: parseFloat(kd),
+          kda: parseFloat(kda),
+          acs_per_map: parseFloat(acsPerMap),
+          kills_per_map: parseFloat(killsPerMap),
+          deaths_per_map: parseFloat(deathsPerMap),
+          assists_per_map: parseFloat(assistsPerMap)
+        });
+      }
+    }
+
+    console.log(`Found ${stats.length} player statistics`);
+    return stats;
+  }
+
+  /**
+   * Parse map statistics from the content
+   */
+  _parseMapStats(content) {
+    const stats = {
+      maps_picked: {},
+      maps_banned: {},
+      side_statistics: {}
+    };
+
+    // Look for the Maps Picked section in HTML format
+    const pickedSectionRegex = /<h2>Maps Picked<\/h2>\s*([\s\S]*?)(?=<h2>|$)/;
+    const pickedSection = content.match(pickedSectionRegex);
+    
+    if (pickedSection) {
+      const pickedContent = pickedSection[1];
+      const pickedRegex = /<tr>\s*<td[^>]*>([^<]+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<\/tr>/g;
+      let match;
+      while ((match = pickedRegex.exec(pickedContent)) !== null) {
+        const [_, map, ...counts] = match;
+        if (map && !map.includes('Map')) {
+          stats.maps_picked[map.trim()] = counts.map(c => parseInt(c));
+        }
+      }
+    }
+
+    // Look for the Maps Banned section in HTML format
+    const bannedSectionRegex = /<h2>Maps Banned<\/h2>\s*([\s\S]*?)(?=<h2>|$)/;
+    const bannedSection = content.match(bannedSectionRegex);
+    
+    if (bannedSection) {
+      const bannedContent = bannedSection[1];
+      const bannedRegex = /<tr>\s*<td[^>]*>([^<]+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<td[^>]*>(\d+)<\/td>\s*<\/tr>/g;
+      let match;
+      while ((match = bannedRegex.exec(bannedContent)) !== null) {
+        const [_, map, ...counts] = match;
+        if (map && !map.includes('Map')) {
+          stats.maps_banned[map.trim()] = counts.map(c => parseInt(c));
+        }
+      }
+    }
+
+    console.log('Map statistics:', {
+      picked: Object.keys(stats.maps_picked).length,
+      banned: Object.keys(stats.maps_banned).length
+    });
+
+    return stats;
+  }
+
+  /**
+   * Parse team statistics from the content
+   */
+  _parseTeamStats(content) {
+    const stats = [];
+    
+    // Look for the team statistics table in HTML format
+    const tableRegex = /<table class="wikitable[^"]*">\s*<tr>\s*<th>#<\/th>\s*<th>Team<\/th>\s*<th>W<\/th>\s*<th>L<\/th>\s*<th>WR<\/th>\s*<th>RD<\/th>\s*<th>Maps<\/th>\s*<th>Rounds<\/th>\s*<th>Rounds\/Map<\/th>\s*<\/tr>\s*([\s\S]*?)<\/table>/;
+    const tableMatch = content.match(tableRegex);
+    
+    if (!tableMatch) {
+      console.log('No team statistics table found in content');
+      return stats;
+    }
+
+    const rows = tableMatch[1].split('</tr>');
+    for (const row of rows) {
+      const cells = row.match(/<td[^>]*>([^<]+)<\/td>/g)?.map(cell => cell.replace(/<[^>]+>/g, '').trim()) || [];
+      if (cells.length >= 10) {
+        const [rank, team, wins, losses, winRate, roundDiff, maps, rounds, roundsPerMap] = cells;
+        
+        stats.push({
+          rank: parseInt(rank),
+          team: team,
+          wins: parseInt(wins),
+          losses: parseInt(losses),
+          win_rate: parseFloat(winRate),
+          round_differential: parseInt(roundDiff),
+          maps: parseInt(maps),
+          rounds: parseInt(rounds),
+          rounds_per_map: parseFloat(roundsPerMap)
+        });
+      }
+    }
+
+    console.log(`Found ${stats.length} team statistics`);
+    return stats;
+  }
+
+  /**
+   * Parse match results from the content
+   */
+  _parseMatchResults(content) {
+    const results = [];
+    
+    // Look for match results tables in HTML format
+    const tableRegex = /<table class="wikitable[^"]*">\s*<tr>\s*<th>Team 1<\/th>\s*<th>Score<\/th>\s*<th>Team 2<\/th>\s*<th>Maps<\/th>\s*<th>VOD<\/th>\s*<\/tr>\s*([\s\S]*?)<\/table>/g;
+    let tableMatch;
+    
+    while ((tableMatch = tableRegex.exec(content)) !== null) {
+      const rows = tableMatch[1].split('</tr>');
+      for (const row of rows) {
+        const cells = row.match(/<td[^>]*>([^<]+)<\/td>/g)?.map(cell => cell.replace(/<[^>]+>/g, '').trim()) || [];
+        if (cells.length >= 5) {
+          const [team1, score, team2, maps, vod] = cells;
+          
+          results.push({
+            team1: team1,
+            team2: team2,
+            score: score.trim(),
+            maps: maps.split(',').map(m => m.trim()),
+            vod: vod.trim()
+          });
+        }
+      }
+    }
+
+    console.log(`Found ${results.length} match results`);
+    return results;
+  }
+
   // Helper methods for data extraction
   _extractEarningsFromPage(pageData) {
     try {
@@ -407,7 +698,7 @@ class LiquipediaService {
       }
 
       // Parse earnings section
-      const earningsText = pageData.earnings;
+      const earningsText = pageData.earnings?.parse?.text || '';
       if (!earningsText) return earnings;
 
       // Extract earnings by year
@@ -559,6 +850,151 @@ class LiquipediaService {
     if (now > endDate) return 'completed';
     return 'ongoing';
   }
+
+  async getPlayerData(playerName) {
+    try {
+      // Search for player
+      const searchResults = await this.searchPlayer(playerName);
+      if (!searchResults || searchResults.length === 0) {
+        return null;
+      }
+
+      const player = searchResults[0];
+      const pageData = await this.getPlayerPage(player.title);
+
+      if (!pageData) {
+        return null;
+      }
+
+      // Parse the HTML content
+      const $ = cheerio.load(pageData.parse.text);
+      
+      // Extract tournaments
+      const tournaments = this.extractTournaments($);
+      
+      // Extract teams
+      const teams = this.extractTeams($);
+      
+      // Extract stats
+      const stats = this.extractStats($);
+      
+      // Calculate earnings
+      const earnings = this.calculateEarnings(tournaments);
+
+      return {
+        url: player.url,
+        title: player.title,
+        tournaments,
+        teams,
+        stats,
+        totalEarnings: earnings.total,
+        earningsByYear: earnings.byYear
+      };
+    } catch (error) {
+      console.error('Error getting player data:', error);
+      return null;
+    }
+  }
+
+  extractTournaments($) {
+    const tournaments = [];
+    const tournamentTable = $('.wikitable').first();
+    
+    if (!tournamentTable.length) return tournaments;
+
+    tournamentTable.find('tr').each((i, row) => {
+      if (i === 0) return; // Skip header row
+      
+      const cols = $(row).find('td');
+      if (cols.length >= 5) {
+        tournaments.push({
+          date: $(cols[0]).text().trim(),
+          name: $(cols[1]).text().trim(),
+          placement: parseInt($(cols[2]).text().trim()) || null,
+          team: $(cols[3]).text().trim(),
+          prize: $(cols[4]).text().trim()
+        });
+      }
+    });
+
+    return tournaments;
+  }
+
+  extractTeams($) {
+    const teams = [];
+    const teamTable = $('.wikitable').eq(1); // Second table is usually team history
+    
+    if (!teamTable.length) return teams;
+
+    teamTable.find('tr').each((i, row) => {
+      if (i === 0) return; // Skip header row
+      
+      const cols = $(row).find('td');
+      if (cols.length >= 4) {
+        teams.push({
+          startDate: $(cols[0]).text().trim(),
+          endDate: $(cols[1]).text().trim(),
+          name: $(cols[2]).text().trim(),
+          role: $(cols[3]).text().trim()
+        });
+      }
+    });
+
+    return teams;
+  }
+
+  extractStats($) {
+    const stats = {};
+    const statsTable = $('.wikitable').eq(2); // Third table is usually stats
+    
+    if (!statsTable.length) return stats;
+
+    statsTable.find('tr').each((i, row) => {
+      const cols = $(row).find('td');
+      if (cols.length >= 2) {
+        const key = $(cols[0]).text().trim().toLowerCase().replace(/\s+/g, '_');
+        const value = $(cols[1]).text().trim();
+        
+        if (key && value) {
+          stats[key] = value;
+        }
+      }
+    });
+
+    return stats;
+  }
+
+  calculateEarnings(tournaments) {
+    const earnings = {
+      total: 0,
+      byYear: {}
+    };
+
+    tournaments.forEach(tournament => {
+      const prize = this.parsePrize(tournament.prize);
+      if (prize) {
+        earnings.total += prize;
+        
+        const year = new Date(tournament.date).getFullYear();
+        earnings.byYear[year] = (earnings.byYear[year] || 0) + prize;
+      }
+    });
+
+    return earnings;
+  }
+
+  parsePrize(prizeStr) {
+    if (!prizeStr) return 0;
+    
+    // Remove currency symbols and commas
+    const cleanStr = prizeStr.replace(/[$,]/g, '');
+    
+    // Extract number
+    const match = cleanStr.match(/\d+(\.\d+)?/);
+    if (!match) return 0;
+    
+    return parseFloat(match[0]);
+  }
 }
 
-module.exports = new LiquipediaService();
+module.exports = LiquipediaService;

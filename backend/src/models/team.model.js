@@ -82,5 +82,30 @@ module.exports = (sequelize) => {
     ]
   });
 
+  // Define associations
+  Team.associate = (models) => {
+    Team.hasMany(models.Player, {
+      foreignKey: 'team_id'
+    });
+    Team.hasMany(models.Match, {
+      foreignKey: 'team1_id',
+      as: 'Team1Matches'
+    });
+    Team.hasMany(models.Match, {
+      foreignKey: 'team2_id',
+      as: 'Team2Matches'
+    });
+    Team.hasMany(models.Match, {
+      foreignKey: 'winner_id',
+      as: 'WonMatches'
+    });
+    Team.hasMany(models.Earnings, {
+      foreignKey: 'team_id'
+    });
+    Team.hasMany(models.PlayerTournamentHistory, {
+      foreignKey: 'team_id'
+    });
+  };
+
   return Team;
 };

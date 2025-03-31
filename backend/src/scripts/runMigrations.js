@@ -1,75 +1,61 @@
-require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
-const { sequelize } = require('../utils/database');
-const path = require('path');
+const { Sequelize } = require('sequelize');
+const config = require('../config/database');
 const fs = require('fs');
-const { QueryTypes } = require('sequelize');
+const path = require('path');
+
+const env = process.env.NODE_ENV || 'development';
+const dbConfig = config[env];
+
+const sequelize = new Sequelize(dbConfig.database, dbConfig.username, dbConfig.password, {
+  host: dbConfig.host,
+  port: dbConfig.port,
+  dialect: dbConfig.dialect,
+  logging: dbConfig.logging
+});
 
 async function runMigrations() {
-  const transaction = await sequelize.transaction();
-  
   try {
-    // Get all migration files
-    const migrationsDir = path.join(__dirname, '../migrations');
-    const migrationFiles = fs.readdirSync(migrationsDir)
+    // Read all migration files
+    const migrationFiles = fs.readdirSync(path.join(__dirname, '../../migrations'))
       .filter(file => file.endsWith('.js'))
       .sort();
 
-    console.log('Starting migrations...');
+    console.log('Found migration files:', migrationFiles);
 
-    // Drop and recreate migrations table
-    const tables = await sequelize.getQueryInterface().showAllTables();
-    if (tables.includes('SequelizeMeta')) {
-      console.log('Dropping existing migrations table...');
-      await sequelize.getQueryInterface().dropTable('SequelizeMeta', { transaction });
-    }
+    // Create SequelizeMeta table if it doesn't exist
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS "SequelizeMeta" (
+        "name" VARCHAR(255) NOT NULL,
+        PRIMARY KEY ("name")
+      );
+    `);
 
-    console.log('Creating migrations table...');
-    await sequelize.getQueryInterface().createTable('SequelizeMeta', {
-      name: {
-        type: sequelize.Sequelize.STRING,
-        allowNull: false,
-        unique: true,
-        primaryKey: true
-      }
-    }, { transaction });
+    // Get executed migrations
+    const [executedMigrations] = await sequelize.query('SELECT "name" FROM "SequelizeMeta"');
+    const executedMigrationNames = executedMigrations.map(m => m.name);
 
-    // Run each migration in sequence
+    // Run pending migrations
     for (const file of migrationFiles) {
-      const migrationName = path.basename(file, '.js');
-      console.log(`Running migration: ${migrationName}`);
-      const migration = require(path.join(migrationsDir, file));
-      
-      try {
-        await migration.up(sequelize.getQueryInterface(), sequelize.Sequelize, { transaction });
+      if (!executedMigrationNames.includes(file)) {
+        console.log(`Running migration: ${file}`);
+        const migration = require(path.join(__dirname, '../../migrations', file));
+        await migration.up(sequelize.getQueryInterface(), Sequelize);
         
         // Record migration in SequelizeMeta
-        await sequelize.getQueryInterface().sequelize.query(
-          'INSERT INTO "SequelizeMeta" (name) VALUES ($1)',
-          {
-            type: QueryTypes.INSERT,
-            bind: [migrationName],
-            transaction
-          }
-        );
-        
-        console.log(`Completed migration: ${migrationName}`);
-      } catch (error) {
-        console.error(`Error in migration ${migrationName}:`, error);
-        throw error;
+        await sequelize.query('INSERT INTO "SequelizeMeta" ("name") VALUES (?)', {
+          replacements: [file],
+          type: Sequelize.QueryTypes.INSERT
+        });
       }
     }
 
-    await transaction.commit();
     console.log('All migrations completed successfully');
   } catch (error) {
-    await transaction.rollback();
     console.error('Error running migrations:', error);
-    process.exit(1);
+  } finally {
+    await sequelize.close();
   }
 }
 
 // Run migrations
-runMigrations().catch(error => {
-  console.error('Fatal error:', error);
-  process.exit(1);
-}); 
+runMigrations(); 

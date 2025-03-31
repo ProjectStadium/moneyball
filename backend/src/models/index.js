@@ -1,7 +1,18 @@
 // src/models/index.js
-const { sequelize } = require('../utils/database');
+const { Sequelize } = require('sequelize');
+const config = require('../config/database');
 const fs = require('fs');
 const path = require('path');
+
+const env = process.env.NODE_ENV || 'development';
+const dbConfig = config[env];
+
+const sequelize = new Sequelize(dbConfig.database, dbConfig.username, dbConfig.password, {
+  host: dbConfig.host,
+  port: dbConfig.port,
+  dialect: dbConfig.dialect,
+  logging: dbConfig.logging
+});
 
 const db = {};
 
@@ -28,16 +39,22 @@ console.log('Available models:', Object.keys(db));
 
 // Set up associations after all models are loaded
 const setupAssociations = () => {
+  // Call associate function for each model if it exists
+  Object.keys(db).forEach(modelName => {
+    if (db[modelName].associate) {
+      console.log(`Setting up associations for ${modelName}`);
+      db[modelName].associate(db);
+    }
+  });
+
   // Define associations between Team and Player
   if (db.Team && db.Player) {
     console.log('Setting up Team-Player associations');
     db.Team.hasMany(db.Player, {
-      foreignKey: 'team_name',
-      targetKey: 'team_abbreviation'
+      foreignKey: 'team_id'
     });
     db.Player.belongsTo(db.Team, {
-      foreignKey: 'team_name',
-      targetKey: 'team_abbreviation'
+      foreignKey: 'team_id'
     });
   }
 
@@ -73,12 +90,43 @@ const setupAssociations = () => {
       foreignKey: 'team_id'
     });
   }
+
+  // Define associations for PlayerTournamentHistory
+  if (db.Player && db.PlayerTournamentHistory) {
+    console.log('Setting up Player-PlayerTournamentHistory associations');
+    db.Player.hasMany(db.PlayerTournamentHistory, {
+      foreignKey: 'player_id'
+    });
+    db.PlayerTournamentHistory.belongsTo(db.Player, {
+      foreignKey: 'player_id'
+    });
+  }
+
+  // Define associations for Player, PlayerMatch, and Match
+  if (db.Player && db.PlayerMatch && db.Match) {
+    console.log('Setting up Player-PlayerMatch-Match associations');
+    db.Player.hasMany(db.PlayerMatch, {
+      foreignKey: 'player_id',
+      as: 'player_match_stats'
+    });
+    db.PlayerMatch.belongsTo(db.Player, {
+      foreignKey: 'player_id'
+    });
+    db.Match.hasMany(db.PlayerMatch, {
+      foreignKey: 'match_id',
+      as: 'match_player_stats'
+    });
+    db.PlayerMatch.belongsTo(db.Match, {
+      foreignKey: 'match_id'
+    });
+  }
 };
 
 // Set up associations
 setupAssociations();
 
-// Add sequelize instance to db object
+// Export the db object
 db.sequelize = sequelize;
+db.Sequelize = Sequelize;
 
 module.exports = db;
