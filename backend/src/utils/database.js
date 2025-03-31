@@ -30,7 +30,7 @@ if (process.env.DATABASE_URL) {
   });
 } else {
   console.log('Using individual connection parameters');
-  // Validate required environment variables for individual connection
+  // Only validate individual environment variables if DATABASE_URL is not present
   const requiredEnvVars = [
     'POSTGRES_HOST', 
     'POSTGRES_PORT', 
@@ -39,12 +39,11 @@ if (process.env.DATABASE_URL) {
     'POSTGRES_PASSWORD'
   ];
 
-  requiredEnvVars.forEach(varName => {
-    if (!process.env[varName]) {
-      console.error(`Missing required environment variable: ${varName}`);
-      process.exit(1);
-    }
-  });
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+  if (missingVars.length > 0) {
+    console.error('Missing required environment variables:', missingVars.join(', '));
+    process.exit(1);
+  }
 
   // Log database configuration (without password)
   console.log('Database Configuration:', {
