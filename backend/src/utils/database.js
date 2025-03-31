@@ -5,6 +5,12 @@ const { Sequelize } = require('sequelize');
 // Set NODE_ENV to development for logging
 const env = process.env.NODE_ENV || 'development';
 
+console.log('Environment:', env);
+console.log('DATABASE_URL present:', !!process.env.DATABASE_URL);
+if (process.env.DATABASE_URL) {
+  console.log('DATABASE_URL host:', new URL(process.env.DATABASE_URL).hostname);
+}
+
 let sequelize;
 
 if (process.env.DATABASE_URL) {
